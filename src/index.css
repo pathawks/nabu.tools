@@ -1,0 +1,111 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/space-mono/400.css";
+@import "@fontsource/space-mono/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-mono: 'IBM Plex Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    --font-display: 'Space Mono', 'IBM Plex Mono', monospace;
+    --font-sans: var(--font-mono);
+    --font-heading: var(--font-display);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Retro dark palette — always dark, no light mode toggle.
+ * Mapped from the original cart-dumper.jsx palette:
+ *   bg: #0a0e14, bgCard: #111820, border: #1e2a38
+ *   text: #c5cdd8, textDim: #5a6a7a, textBright: #e8edf3
+ *   accent/success: #40b882, accentDim: #2d6a4f, accentBright: #6ce8b0
+ *   warn: #e6a817, error: #e55353, purple: #b388ff
+ */
+:root {
+    --background: #0a0e14;
+    --foreground: #c5cdd8;
+    --card: #111820;
+    --card-foreground: #e8edf3;
+    --popover: #111820;
+    --popover-foreground: #e8edf3;
+    --primary: #40b882;
+    --primary-foreground: #0a0e14;
+    --secondary: #1e2a38;
+    --secondary-foreground: #c5cdd8;
+    --muted: #161e28;
+    --muted-foreground: #5a6a7a;
+    --accent: #161e28;
+    --accent-foreground: #e8edf3;
+    --destructive: #e55353;
+    --border: #1e2a38;
+    --input: #1e2a38;
+    --ring: #2d6a4f;
+    --chart-1: #40b882;
+    --chart-2: #b388ff;
+    --chart-3: #e6a817;
+    --chart-4: #6ce8b0;
+    --chart-5: #e55353;
+    --radius: 0.5rem;
+    --sidebar: #111820;
+    --sidebar-foreground: #c5cdd8;
+    --sidebar-primary: #40b882;
+    --sidebar-primary-foreground: #0a0e14;
+    --sidebar-accent: #161e28;
+    --sidebar-accent-foreground: #e8edf3;
+    --sidebar-border: #1e2a38;
+    --sidebar-ring: #2d6a4f;
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+    body {
+        @apply bg-background text-foreground font-mono;
+    }
+    html {
+        @apply font-mono;
+    }
+}
