@@ -3,9 +3,12 @@ import { MockDriver } from "@/lib/core/mock-driver";
 import { DEVICES, type DeviceDef } from "@/lib/core/devices";
 import { SerialTransport } from "@/lib/transport/serial-transport";
 import { HidTransport } from "@/lib/transport/hid-transport";
+import { UsbTransport } from "@/lib/transport/usb-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { EMSNDSDriver } from "@/lib/drivers/ems-nds/ems-nds-driver";
+import { EMS_NDS_FILTER } from "@/lib/drivers/ems-nds/ems-nds-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -248,6 +251,36 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
     });
 
+    // Try WebUSB (EMS NDS Adapter)
+    navigator.usb?.getDevices().then(async (devices) => {
+      const emsDev = devices.find(
+        (d) =>
+          d.vendorId === EMS_NDS_FILTER.vendorId &&
+          d.productId === EMS_NDS_FILTER.productId,
+      );
+      if (emsDev) {
+        log("Reconnecting to USB device...");
+        try {
+          const transport = new UsbTransport([EMS_NDS_FILTER]);
+          await transport.connectWithDevice(emsDev);
+
+          transport.on("onDisconnect", () => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const emsDriver = new EMSNDSDriver(transport);
+          emsDriver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await emsDriver.initialize();
+          log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+          finishConnect(emsDriver, info, "EMS_NDS");
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+      }
+    });
+
     // Try HID (PowerSave Portal)
     navigator.hid?.getDevices().then(async (devices) => {
       const psDevice = devices.find((d) =>
@@ -355,6 +388,33 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await psDriver.initialize();
             log(`Connected: ${info.deviceName}`);
             finishConnect(psDriver, info, deviceId);
+            break;
+          }
+
+          case "EMS_NDS": {
+            const transport = new UsbTransport([EMS_NDS_FILTER]);
+            if (authorized) {
+              log("Connecting...");
+              await transport.connectWithDevice(authorized as USBDevice);
+            } else {
+              log("Requesting USB device...");
+              await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const emsDriver = new EMSNDSDriver(transport);
+            emsDriver.on("onLog", (msg, level) => log(msg, level));
+
+            log("Initializing device...");
+            const emsInfo = await emsDriver.initialize();
+            log(
+              `Connected: ${emsInfo.deviceName} (fw: ${emsInfo.firmwareVersion})`,
+            );
+            finishConnect(emsDriver, emsInfo, deviceId);
             break;
           }
         }

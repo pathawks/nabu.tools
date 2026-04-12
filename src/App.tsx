@@ -16,6 +16,7 @@ import { DatabasePanel } from "@/components/shared/database-panel";
 import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
+import { NDSScanner } from "@/components/wizard/nds-scanner";
 import type {
   DeviceDriver,
   DeviceInfo,
@@ -140,7 +141,7 @@ function App() {
     (_driver: DeviceDriver, _info: DeviceInfo) => {
       // Scanner-based devices handle detection in their own polling loop
       const isScanner = _driver.capabilities.some(
-        (c) => c.systemId === "amiibo",
+        (c) => c.systemId === "amiibo" || c.systemId === "nds_save",
       );
       if (!isScanner) autoDetectSystem(_driver);
     },
@@ -169,6 +170,9 @@ function App() {
   // Determine the status badge state
   const isAmiiboDevice =
     connection.driver?.capabilities.some((c) => c.systemId === "amiibo") ??
+    false;
+  const isNDSSaveDevice =
+    connection.driver?.capabilities.some((c) => c.systemId === "nds_save") ??
     false;
 
   const badgeState = useMemo(() => {
@@ -293,6 +297,13 @@ function App() {
               />
             ) : isAmiiboDevice ? (
               <AmiiboScanner
+                driver={connection.driver!}
+                deviceInfo={connection.deviceInfo}
+                onDisconnect={handleDisconnect}
+                log={log}
+              />
+            ) : isNDSSaveDevice ? (
+              <NDSScanner
                 driver={connection.driver!}
                 deviceInfo={connection.deviceInfo}
                 onDisconnect={handleDisconnect}

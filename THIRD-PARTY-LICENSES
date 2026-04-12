@@ -46,6 +46,31 @@ SOFTWARE.
 
 ================================================================================
 
+ndsplus
+https://github.com/Thulinma/ndsplus
+
+EMS NDS Adapter+ USB protocol commands and save read/write sequences in
+src/lib/drivers/ems-nds/ were implemented from the ndsplus reference
+implementation by Thulinma.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
+ndstool
+https://github.com/devkitPro/ndstool
+
+Nintendo maker/licensee code database in src/lib/systems/nds/nds-maker-codes.ts
+was derived from ndstool's ndscodes.cpp.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
 AmiiboAPI
 https://github.com/N3evin/AmiiboAPI
 
