@@ -15,6 +15,7 @@ import { useConnection } from "@/hooks/use-connection";
 import { DatabasePanel } from "@/components/shared/database-panel";
 import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
+import { NESSystemHandler } from "@/lib/systems/nes/nes-system-handler";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
 import type {
   DeviceDriver,
@@ -30,6 +31,7 @@ const ALL_SYSTEMS: SystemHandler[] = [
   new GBSystemHandler("gb"),
   new GBSystemHandler("gbc"),
   new GBASystemHandler(),
+  new NESSystemHandler(),
 ];
 
 const ACTIVE_STATES: ReadonlySet<DumpJobState> = new Set<DumpJobState>([

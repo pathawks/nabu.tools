@@ -6,6 +6,9 @@ import { HidTransport } from "@/lib/transport/hid-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { INLDevice } from "@/lib/drivers/inl/inl-device";
+import { INLDriver } from "@/lib/drivers/inl/inl-driver";
+import { INL_DEVICE_FILTER } from "@/lib/drivers/inl/inl-opcodes";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -248,6 +251,36 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
     });
 
+    // Try WebUSB (INL Retro)
+    navigator.usb?.getDevices().then(async (devices) => {
+      const inlDev = devices.find(
+        (d) =>
+          d.vendorId === INL_DEVICE_FILTER.vendorId &&
+          d.productId === INL_DEVICE_FILTER.productId,
+      );
+      if (inlDev) {
+        log("Reconnecting to USB device...");
+        try {
+          const inlDevice = new INLDevice();
+          await inlDevice.connectWithDevice(inlDev);
+
+          inlDevice.onDisconnected(() => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const inlDriver = new INLDriver(inlDevice);
+          inlDriver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await inlDriver.initialize();
+          log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+          finishConnect(inlDriver, info, "INL_RETRO");
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+      }
+    });
+
     // Try HID (PowerSave Portal)
     navigator.hid?.getDevices().then(async (devices) => {
       const psDevice = devices.find((d) =>
@@ -331,6 +364,31 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
               `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, ${info.hardwareRevision})`,
             );
             finishConnect(gbxDriver, info, deviceId);
+            break;
+          }
+
+          case "INL_RETRO": {
+            const inlDevice = new INLDevice();
+            if (authorized) {
+              log("Connecting...");
+              await inlDevice.connectWithDevice(authorized as USBDevice);
+            } else {
+              log("Requesting USB device...");
+              await inlDevice.connect();
+            }
+
+            inlDevice.onDisconnected(() => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const inlDriver = new INLDriver(inlDevice);
+            inlDriver.on("onLog", (msg, level) => log(msg, level));
+
+            log("Initializing device...");
+            const info = await inlDriver.initialize();
+            log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+            finishConnect(inlDriver, info, deviceId);
             break;
           }
 

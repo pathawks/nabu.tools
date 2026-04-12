@@ -52,7 +52,7 @@ export interface DeviceIdentity {
 
 // ─── Device Driver ──────────────────────────────────────────────────────────
 
-export type SystemId = "gb" | "gbc" | "gba" | "amiibo" | string;
+export type SystemId = "gb" | "gbc" | "gba" | "nes" | "amiibo" | string;
 
 export interface DeviceCapability {
   systemId: SystemId;
