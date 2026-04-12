@@ -37,4 +37,15 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
       "Protocol: github.com/malc0mn/amiigo",
   },
+  PROCON: {
+    id: "PROCON",
+    name: "Switch Pro Controller",
+    vendorId: 0x057e,
+    productId: 0x2009,
+    transport: "webhid",
+    systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
+    notes:
+      "Reads Amiibo via the Pro Controller's built-in NFC reader. " +
+      "Also supports Joy-Con (R). Linux blocked: HID descriptor omits report 0x31.",
+  },
 };

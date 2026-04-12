@@ -6,6 +6,8 @@ import { HidTransport } from "@/lib/transport/hid-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { ProConDriver } from "@/lib/drivers/procon/procon-driver";
+import { DEVICE_FILTERS as PROCON_FILTERS } from "@/lib/drivers/procon/procon-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -273,6 +275,38 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           const info = await psDriver.initialize();
           log(`Connected: ${info.deviceName}`);
           finishConnect(psDriver, info, "POWERSAVE");
+          return;
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+      }
+
+      const pcDevice = devices.find((d) =>
+        PROCON_FILTERS.some(
+          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
+        ),
+      );
+      if (pcDevice && !driverRef.current) {
+        log("Reconnecting to Pro Controller...");
+        try {
+          const transport = new HidTransport(PROCON_FILTERS);
+          const identity = await transport.connectWithDevice(pcDevice);
+          log(`HID device opened: ${identity.name}`);
+
+          transport.on("onDisconnect", () => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const pcDriver = new ProConDriver(
+            transport,
+            identity.raw as HIDDevice,
+          );
+          pcDriver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await pcDriver.initialize();
+          log(`Connected: ${info.deviceName}`);
+          finishConnect(pcDriver, info, "PROCON");
         } catch (e) {
           log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
         }
@@ -355,6 +389,36 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await psDriver.initialize();
             log(`Connected: ${info.deviceName}`);
             finishConnect(psDriver, info, deviceId);
+            break;
+          }
+
+          case "PROCON": {
+            const transport = new HidTransport(PROCON_FILTERS);
+            let identity;
+            if (authorized) {
+              log("Connecting...");
+              identity = await transport.connectWithDevice(
+                authorized as HIDDevice,
+              );
+            } else {
+              log("Requesting HID device...");
+              identity = await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const pcDriver = new ProConDriver(
+              transport,
+              identity.raw as HIDDevice,
+            );
+            pcDriver.on("onLog", (msg, level) => log(msg, level));
+
+            const pcInfo = await pcDriver.initialize();
+            log(`Connected: ${pcInfo.deviceName}`);
+            finishConnect(pcDriver, pcInfo, deviceId);
             break;
           }
         }
