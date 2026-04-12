@@ -24,6 +24,7 @@ export class MockDriver implements DeviceDriver {
     { systemId: "gb", operations: ["dump_rom", "dump_save"], autoDetect: true },
     { systemId: "gbc", operations: ["dump_rom", "dump_save"], autoDetect: true },
     { systemId: "gba", operations: ["dump_rom", "dump_save"], autoDetect: true },
+    { systemId: "nes", operations: ["dump_rom"], autoDetect: false },
   ];
 
   private events: Partial<DeviceDriverEvents> = {};

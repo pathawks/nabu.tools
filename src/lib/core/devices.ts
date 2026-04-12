@@ -26,6 +26,17 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Open-source by insideGadgets. Uses CH340 serial. " +
       "Protocol: github.com/lesserkuma/FlashGBX",
   },
+  INL_RETRO: {
+    id: "INL_RETRO",
+    name: "INL Retro Programmer",
+    vendorId: 0x16c0,
+    productId: 0x05dc,
+    transport: "webusb",
+    systems: [{ id: "nes", name: "NES / Famicom" }],
+    notes:
+      "Open-source cartridge dumper by Infinite NES Lives. " +
+      "Protocol: gitlab.com/InfiniteNesLives/INL-retro-progdump",
+  },
   POWERSAVE: {
     id: "POWERSAVE",
     name: "PowerSaves for Amiibo",
