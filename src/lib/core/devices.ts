@@ -73,4 +73,19 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Only PS1 cards are dumpable in the browser (PS2 reads require " +
       "MagicGate authentication keys that cannot be redistributed).",
   },
+  // Reads Amiibo via the controller's built-in NFC reader. Also matches
+  // Joy-Con (R) (0x057e:0x2007). Linux is blocked because the HID
+  // descriptor omits MCU input report 0x31; macOS / Windows work.
+  PROCON: {
+    id: "PROCON",
+    name: "Switch Pro Controller",
+    vendorId: 0x057e,
+    productId: 0x2009,
+    transport: "webhid",
+    systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
+    models: ["HAC-013"],
+    description:
+      "Nintendo Switch Pro Controller, used here as a NFC reader for " +
+      "Amiibo (NTAG215) tags.",
+  },
 };

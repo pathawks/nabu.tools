@@ -8,6 +8,8 @@ import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
 import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
 import { DEVICE_FILTERS as PS3_MCA_FILTERS } from "@/lib/drivers/ps3-mca/ps3-mca-commands";
+import { ProConDriver } from "@/lib/drivers/procon/procon-driver";
+import { DEVICE_FILTERS as PROCON_FILTERS } from "@/lib/drivers/procon/procon-commands";
 import type {
   DeviceDriver,
   DeviceIdentity,
@@ -23,7 +25,7 @@ export interface ConnectionEntry {
     transport: Transport,
     ctx: { authorized: AuthorizedDevice | null },
   ): Promise<DeviceIdentity>;
-  createDriver(transport: Transport): DeviceDriver;
+  createDriver(transport: Transport, identity: DeviceIdentity): DeviceDriver;
   /** Pre-initialize log line. Default: "Initializing device..." */
   preInitLog?: string;
   /** Post-initialize log line. Default: `Connected: ${info.deviceName}` */
@@ -72,5 +74,15 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
         ? (t as UsbTransport).connectWithDevice(authorized as USBDevice)
         : (t as UsbTransport).connect(),
     createDriver: (t) => new Ps3McaDriver(t as UsbTransport),
+  },
+
+  PROCON: {
+    createTransport: () => new HidTransport(PROCON_FILTERS),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as HidTransport).connectWithDevice(authorized as HIDDevice)
+        : (t as HidTransport).connect(),
+    createDriver: (t, identity) =>
+      new ProConDriver(t as HidTransport, identity.raw as HIDDevice),
   },
 };

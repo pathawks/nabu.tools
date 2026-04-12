@@ -262,7 +262,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           handleDisconnect();
         });
 
-        const drv = entry.createDriver(transport);
+        const drv = entry.createDriver(transport, identity);
         drv.on("onLog", (msg, level) => log(msg, level));
 
         log(entry.preInitLog ?? "Initializing device...");
