@@ -145,6 +145,7 @@ export interface SystemHandler {
     currentValues: ConfigValues,
     autoDetected?: CartridgeInfo,
   ): ResolvedConfigField[];
+  estimateDumpSize?(values: ConfigValues): number;
   validate(values: ConfigValues): ValidationResult;
   buildReadConfig(values: ConfigValues): ReadConfig;
   buildOutputFile(rawData: Uint8Array, config: ReadConfig): OutputFile;

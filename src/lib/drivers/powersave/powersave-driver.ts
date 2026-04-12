@@ -148,11 +148,11 @@ export class PowerSaveDriver implements DeviceDriver {
   /**
    * Read the capability container (page 3) to determine tag type.
    *
-   * Returns { isNdef: true } for standard NDEF tags (CC magic 0xE1),
-   * null for Amiibo (non-standard CC like 0xF1) or unreadable tags.
-   * Throws for NTAG213 (Lego Dimensions) which can't be fully read.
+   * Returns { isAmiibo: true } for Amiibo tags (non-standard CC magic 0xF1),
+   * { isAmiibo: false } for standard NDEF tags (CC magic 0xE1),
+   * or null for unreadable tags.
    */
-  private async readCc(): Promise<{ isNdef: boolean } | null> {
+  private async readCc(): Promise<{ isAmiibo: boolean } | null> {
     const { data, isError } = await this.sendCmd(CMD.READ, [0x03]);
     if (isError) return null;
 
