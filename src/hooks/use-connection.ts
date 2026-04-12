@@ -8,6 +8,8 @@ import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
 import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
+import { ToyPadDriver } from "@/lib/drivers/toypad/toypad-driver";
+import { DEVICE_FILTERS as TOYPAD_FILTERS } from "@/lib/drivers/toypad/toypad-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -250,7 +252,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
     });
 
-    // Try HID (PowerSaves Portal or Disney Infinity Base)
+    // Try HID (PowerSaves Portal, Disney Infinity Base, Lego Dimensions Toy Pad)
     navigator.hid?.getDevices().then(async (devices) => {
       const psDevice = devices.find((d) =>
         POWERSAVE_FILTERS.some(
@@ -304,6 +306,37 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           const info = await infDriver.initialize();
           log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
           finishConnect(infDriver, info, "DISNEY_INFINITY");
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+      }
+
+      const tpDevice = devices.find((d) =>
+        TOYPAD_FILTERS.some(
+          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
+        ),
+      );
+      if (tpDevice) {
+        log("Reconnecting to Toy Pad...");
+        try {
+          const transport = new HidTransport(TOYPAD_FILTERS);
+          const identity = await transport.connectWithDevice(tpDevice);
+          log(`HID device opened: ${identity.name}`);
+
+          transport.on("onDisconnect", () => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const tpDriver = new ToyPadDriver(
+            transport,
+            identity.raw as HIDDevice,
+          );
+          tpDriver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await tpDriver.initialize();
+          log(`Connected: ${info.deviceName}`);
+          finishConnect(tpDriver, info, "TOYPAD");
         } catch (e) {
           log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
         }
@@ -411,6 +444,37 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await infDriver.initialize();
             log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
             finishConnect(infDriver, info, deviceId);
+            break;
+          }
+
+          case "TOYPAD": {
+            const transport = new HidTransport(TOYPAD_FILTERS);
+            let identity;
+            if (authorized) {
+              log("Connecting...");
+              identity = await transport.connectWithDevice(
+                authorized as HIDDevice,
+              );
+            } else {
+              log("Requesting HID device...");
+              identity = await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const tpDriver = new ToyPadDriver(
+              transport,
+              identity.raw as HIDDevice,
+            );
+            tpDriver.on("onLog", (msg, level) => log(msg, level));
+
+            log("Initializing portal...");
+            const tpInfo = await tpDriver.initialize();
+            log(`Connected: ${tpInfo.deviceName}`);
+            finishConnect(tpDriver, tpInfo, deviceId);
             break;
           }
         }
