@@ -14,10 +14,16 @@ export class HidTransport implements Transport {
   private device: HIDDevice | null = null;
   private events: Partial<TransportEvents> = {};
   private responseResolve: ((data: Uint8Array) => void) | null = null;
+  private inputListener: ((data: Uint8Array) => void) | null = null;
   private readonly filters: HIDDeviceFilter[];
 
   constructor(filters: HIDDeviceFilter[]) {
     this.filters = filters;
+  }
+
+  /** Register a listener for every input report, including unsolicited ones. */
+  setInputListener(listener: ((data: Uint8Array) => void) | null): void {
+    this.inputListener = listener;
   }
 
   get connected(): boolean {
@@ -116,6 +122,7 @@ export class HidTransport implements Transport {
   private onInputReport = (event: Event): void => {
     const { data } = event as unknown as HIDInputReportEvent;
     const bytes = new Uint8Array(data.buffer);
+    this.inputListener?.(bytes);
     if (this.responseResolve) {
       const resolve = this.responseResolve;
       this.responseResolve = null;

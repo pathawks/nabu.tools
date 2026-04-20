@@ -16,6 +16,8 @@ import { DatabasePanel } from "@/components/shared/database-panel";
 import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
+import { InfinityScanner } from "@/components/wizard/infinity-scanner";
+import type { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import type {
   DeviceDriver,
   DeviceInfo,
@@ -140,7 +142,7 @@ function App() {
     (_driver: DeviceDriver, _info: DeviceInfo) => {
       // Scanner-based devices handle detection in their own polling loop
       const isScanner = _driver.capabilities.some(
-        (c) => c.systemId === "amiibo",
+        (c) => c.systemId === "amiibo" || c.systemId === "disney-infinity",
       );
       if (!isScanner) autoDetectSystem(_driver);
     },
@@ -170,6 +172,10 @@ function App() {
   const isAmiiboDevice =
     connection.driver?.capabilities.some((c) => c.systemId === "amiibo") ??
     false;
+  const isInfinityDevice =
+    connection.driver?.capabilities.some(
+      (c) => c.systemId === "disney-infinity",
+    ) ?? false;
 
   const badgeState = useMemo(() => {
     if (dumpJob.state !== "idle") return dumpJob.state;
@@ -294,6 +300,13 @@ function App() {
             ) : isAmiiboDevice ? (
               <AmiiboScanner
                 driver={connection.driver!}
+                deviceInfo={connection.deviceInfo}
+                onDisconnect={handleDisconnect}
+                log={log}
+              />
+            ) : isInfinityDevice ? (
+              <InfinityScanner
+                driver={connection.driver! as InfinityDriver}
                 deviceInfo={connection.deviceInfo}
                 onDisconnect={handleDisconnect}
                 log={log}
