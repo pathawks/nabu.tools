@@ -48,4 +48,15 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Logic3/PDP Wii/Wii U/PS3/PS4/PC base (INF-8032386). " +
       "Protocol reference: dolphin-emu (GPL-2.0-or-later).",
   },
+  TOYPAD: {
+    id: "TOYPAD",
+    name: "Lego Dimensions Toy Pad",
+    vendorId: 0x0e6f,
+    productId: 0x0241,
+    transport: "webhid",
+    systems: [{ id: "lego_dimensions", name: "Lego Dimensions (NTAG213)" }],
+    notes:
+      "Lego Dimensions portal (Wii U/PS3/PS4). Xbox variant (PID 0x0141) detected but unsupported. " +
+      "Protocol: community reverse-engineering (Ellerbach/LegoDimensions, node-ld)",
+  },
 };
