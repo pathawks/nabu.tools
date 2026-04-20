@@ -9,11 +9,19 @@ import type { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { AmiiboSystemHandler } from "@/lib/systems/amiibo/amiibo-system-handler";
 import { parseAmiiboData, amiiboToCartridgeInfo } from "@/lib/systems/amiibo/amiibo-header";
 import { lookupAmiiboName } from "@/lib/systems/amiibo/amiibo-db";
+import { verifyNtagSignature } from "@/lib/systems/amiibo/ntag-signature";
 import { parseNdef } from "@/lib/core/ndef";
 import { NTAG215_SIZE } from "@/lib/drivers/powersave/powersave-commands";
 import type { AmiiboData } from "@/lib/systems/amiibo/amiibo-header";
 
 export type ScannerPhase = "idle" | "polling" | "reading" | "done" | "error";
+
+const uidToHex = (b: Uint8Array) =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("").toUpperCase();
+const uidToColon = (b: Uint8Array) =>
+  Array.from(b, (x) => x.toString(16).padStart(2, "0").toUpperCase()).join(":");
+const uidsEqual = (a: Uint8Array, b: Uint8Array) =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
 
 export interface ScannerResult {
   data: Uint8Array;
@@ -26,6 +34,12 @@ export interface ScannerResult {
   ndefText: string | null;
   isPartial: boolean;
   durationMs: number;
+  /** 32-byte NXP ECC signature captured by the portal during auth. Null for non-Amiibo tags. */
+  signature: Uint8Array | null;
+  /** True if `signature` verifies against NXP's NTAG21x public key (genuine chip). */
+  signatureValid: boolean;
+  /** True if page 0's UID doesn't match the anti-collision UID (tag has been reprogrammed). */
+  rewritten: boolean;
 }
 
 export function useAmiiboScanner(
@@ -117,7 +131,8 @@ export function useAmiiboScanner(
     const readTag = async (info: CartridgeInfo) => {
       const startTime = Date.now();
       try {
-        const config = system.buildReadConfig({ uid: info.meta!.uid });
+        const trueUid = info.meta!.uid as Uint8Array;
+        const config = system.buildReadConfig({ uid: trueUid });
         const rawData = await psDriver.readROM(config, signal);
         if (signal.aborted) return;
 
@@ -130,6 +145,15 @@ export function useAmiiboScanner(
 
         const isPartial = rawData.length < NTAG215_SIZE;
         const parsed = parseAmiiboData(rawData);
+        // On a factory-fresh NTAG215 the anti-collision UID equals page 0's
+        // UID (page 0 is OTP). A mismatch means the manufacturer block was
+        // overwritten — either a blank PowerTag or a reprogrammed tag.
+        const rewritten = !uidsEqual(parsed.uid, trueUid);
+        // Display the anti-collision UID (always authoritative) rather than
+        // whatever happens to be in page 0.
+        parsed.uid = trueUid;
+        parsed.uidHex = uidToHex(trueUid);
+        parsed.uidFormatted = uidToColon(trueUid);
         const cartInfo = amiiboToCartridgeInfo(parsed, rawData);
         const outputFile = system.buildOutputFile(rawData, config);
         const hashes = await system.computeHashes(rawData);
@@ -162,6 +186,10 @@ export function useAmiiboScanner(
         }
         if (signal.aborted) return;
 
+        const signature = psDriver.amiiboSignature;
+        const signatureValid =
+          signature !== null && verifyNtagSignature(parsed.uid, signature);
+
         setResult({
           data: rawData,
           outputFile,
@@ -173,6 +201,9 @@ export function useAmiiboScanner(
           ndefText,
           isPartial,
           durationMs: Date.now() - startTime,
+          signature,
+          signatureValid,
+          rewritten,
         });
         setPhase("done");
 
