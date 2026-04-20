@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { DeviceDriver, OutputFile, VerificationHashes } from "@/lib/types";
 import type { ToyPadDriver } from "@/lib/drivers/toypad/toypad-driver";
-import type { PadId, TagEvent } from "@/lib/drivers/toypad/toypad-commands";
+import type {
+  PadId,
+  TagEvent,
+  TagKind,
+} from "@/lib/drivers/toypad/toypad-commands";
 import {
   PAD_CENTER,
   PAD_LEFT,
@@ -75,7 +79,7 @@ export function useToyPadScanner(
     const readingPads = new Set<PadId>();
 
     const handleTag = async (event: TagEvent) => {
-      const { pad, action, uid, index } = event;
+      const { pad, action, uid, index, kind } = event;
       const uidHex = toHex(uid);
 
       if (action === "removed") {
@@ -83,10 +87,33 @@ export function useToyPadScanner(
         readingPads.delete(pad);
         updatePad(pad, EMPTY_PAD);
         tpDriver.setLed(pad, ...LED_IDLE).catch(() => {});
+        // Removing a non-NTAG tag often unblocks NTAG reads that were failing
+        // because the portal's NFC controller can't juggle both families at
+        // once — clear failedUids so the user doesn't have to re-lift every
+        // Lego figure that happened to collide with a Disney / Skylanders tag.
+        //
+        // TODO: auto-retry pads currently in error state here. Right now
+        // clearing `failedUids` is necessary-but-not-sufficient — the UI
+        // still shows the old error until the user physically lifts and
+        // re-places each affected tag to trigger a fresh "placed" event.
+        if (kind !== "ntag") failedUids.clear();
         return;
       }
 
       if (failedUids.has(uidHex) || readingPads.has(pad)) return;
+
+      // Only NTAG tags are readable through the Toy Pad. For anything else
+      // the portal detected (Disney Infinity MIFARE, Skylanders, hotel keys)
+      // the READ command either errors or returns stale data from a prior
+      // tag — so short-circuit and show what the portal already told us.
+      if (kind !== "ntag") {
+        const msg = unreadableMessage(kind);
+        log(msg, "warn");
+        failedUids.add(uidHex);
+        updatePad(pad, { phase: "error", uid: uidHex, error: msg });
+        tpDriver.setLed(pad, ...LED_ERROR).catch(() => {});
+        return;
+      }
 
       readingPads.add(pad);
       updatePad(pad, {
@@ -103,6 +130,30 @@ export function useToyPadScanner(
 
         if (rawData.length === 0) {
           throw new Error("Could not read any data from this tag.");
+        }
+
+        // The Toy Pad's READ command doesn't reliably honor the tagIndex arg
+        // when multiple tags are on the portal — it silently returns whichever
+        // tag the NFC controller is currently locked onto. Detect that by
+        // confirming the page-0 UID matches the anti-collision UID we got in
+        // the tag event, and fail loudly if they diverge.
+        //
+        // TODO: find a portal-level "select tag N" command so multi-tag reads
+        // actually work. Until then, users can only reliably read one tag
+        // at a time even though the portal tracks multiple indices.
+        const page0Uid = new Uint8Array([
+          rawData[0],
+          rawData[1],
+          rawData[2],
+          rawData[4],
+          rawData[5],
+          rawData[6],
+          rawData[7],
+        ]);
+        if (!uidsEqual(page0Uid, uid)) {
+          throw new Error(
+            "Another tag on the portal is blocking this read — try removing other tags.",
+          );
         }
 
         const isPartial = rawData.length < NTAG213_SIZE;
@@ -153,4 +204,21 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0"))
     .join("")
     .toUpperCase();
+}
+
+function uidsEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+function unreadableMessage(kind: TagKind): string {
+  switch (kind) {
+    case "mifare-disney":
+      return "Disney Infinity figure — use the Disney Infinity Base to read.";
+    case "mifare-foreign":
+      return "Unsupported MIFARE Classic tag (Skylanders or similar). The Toy Pad can't read MIFARE block data.";
+    case "mifare-4byte":
+      return "Unsupported 4-byte MIFARE Classic tag (e.g. hotel key). The Toy Pad can't read MIFARE block data.";
+    default:
+      return "Unsupported tag type.";
+  }
 }

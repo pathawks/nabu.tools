@@ -88,7 +88,12 @@ function PadCard({ padId, state }: { padId: PadId; state: PadState }) {
         )}
 
         {state.phase === "error" && (
-          <p className="py-4 text-sm text-destructive">{state.error}</p>
+          <div className="flex flex-col gap-2 py-4">
+            <p className="text-sm text-destructive">{state.error}</p>
+            {state.uid && (
+              <InfoLine label="UID" value={formatUid(state.uid)} mono />
+            )}
+          </div>
         )}
 
         {state.phase === "done" && state.result && (
@@ -143,6 +148,10 @@ function PadResultCard({
       </Button>
     </div>
   );
+}
+
+function formatUid(hex: string): string {
+  return hex.match(/.{2}/g)?.join(":") ?? hex;
 }
 
 function InfoLine({

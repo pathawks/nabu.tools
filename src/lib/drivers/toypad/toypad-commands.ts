@@ -37,11 +37,46 @@ export const PAD_NAMES: Record<PadId, string> = {
   3: "Right",
 };
 
+/**
+ * Portal's own classification of a detected tag (byte 3 of the 0x56 event).
+ * Same scheme as the Disney Infinity Base portal — both use the PDP NFC
+ * front-end. Only `ntag` tags are readable through the Toy Pad's command
+ * surface; the firmware won't authenticate MIFARE Classic tags, so all
+ * other kinds are informational only (UID via the event, no block data).
+ */
+export type TagKind =
+  | "ntag" // 0x00: NTAG21x / NDEF tag (Lego Dimensions figures)
+  | "mifare-foreign" // 0x01: MIFARE Classic with 7-byte UID (Skylanders etc.)
+  | "mifare-4byte" // 0x08: MIFARE Classic with 4-byte UID (hotel keys etc.)
+  | "mifare-disney" // 0x09: MIFARE Classic authenticated as Disney Infinity
+  | "unknown";
+
+export const MARKER_NTAG = 0x00;
+export const MARKER_MIFARE_FOREIGN = 0x01;
+export const MARKER_MIFARE_4BYTE = 0x08;
+export const MARKER_MIFARE_DISNEY = 0x09;
+
+export function kindFromMarker(marker: number): TagKind {
+  switch (marker) {
+    case MARKER_NTAG:
+      return "ntag";
+    case MARKER_MIFARE_FOREIGN:
+      return "mifare-foreign";
+    case MARKER_MIFARE_4BYTE:
+      return "mifare-4byte";
+    case MARKER_MIFARE_DISNEY:
+      return "mifare-disney";
+    default:
+      return "unknown";
+  }
+}
+
 export interface TagEvent {
   pad: PadId;
   uid: Uint8Array;
   action: "placed" | "removed";
   index: number;
+  kind: TagKind;
 }
 
 // "(c) LEGO 2014" init payload — the portal requires this exact sequence to activate
