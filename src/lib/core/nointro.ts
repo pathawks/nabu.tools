@@ -98,6 +98,17 @@ export function buildVerificationDb(
   return new NoIntroVerificationDB(dat, systemId);
 }
 
+/**
+ * No-Intro tags prerelease/unofficial dumps in parentheses in gameName,
+ * e.g. "Foo (USA) (Beta)". Treat any of these as lower-priority than clean
+ * retail entries when multiple entries share a serial.
+ */
+const PRERELEASE_TAG = /\((?:Beta|Proto|Prototype|Demo|Sample|Unl)[^)]*\)/i;
+
+function isPrerelease(entry: NoIntroEntry): boolean {
+  return PRERELEASE_TAG.test(entry.gameName);
+}
+
 export class NoIntroVerificationDB implements VerificationDB {
   readonly systemId: SystemId;
   readonly source: string;
@@ -119,7 +130,15 @@ export class NoIntroVerificationDB implements VerificationDB {
     for (const entry of dat.entries) {
       if (entry.crc32) this.byCrc.set(entry.crc32, entry);
       if (entry.sha1) this.bySha1.set(entry.sha1, entry);
-      if (entry.serial) this.bySerial.set(entry.serial, entry);
+      if (entry.serial) {
+        // Prefer retail/verified entries over beta/proto/demo when multiple
+        // DAT entries share a serial — otherwise lookupBySerial can surface
+        // "(Beta)" titles for users who have the retail cart.
+        const existing = this.bySerial.get(entry.serial);
+        if (!existing || (isPrerelease(existing) && !isPrerelease(entry))) {
+          this.bySerial.set(entry.serial, entry);
+        }
+      }
     }
   }
 
@@ -165,6 +184,7 @@ export const NOINTRO_SYSTEM_NAMES: Readonly<Record<string, readonly string[]>> =
     gba: ["Nintendo - Game Boy Advance", "Game Boy Advance"],
     nes: ["Nintendo - Nintendo Entertainment System", "NES"],
     snes: ["Nintendo - Super Nintendo Entertainment System", "SNES"],
+    nds_save: ["Nintendo - Nintendo DS", "DS"],
   };
 
 // ─── IndexedDB persistence ──────────────────────────────────────────────

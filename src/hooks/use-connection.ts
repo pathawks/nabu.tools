@@ -6,6 +6,8 @@ import { HidTransport } from "@/lib/transport/hid-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { PowerSave3DSDriver } from "@/lib/drivers/powersave-3ds/powersave-3ds-driver";
+import { DEVICE_FILTERS as POWERSAVE_3DS_FILTERS } from "@/lib/drivers/powersave-3ds/powersave-3ds-commands";
 import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
@@ -250,7 +252,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
     });
 
-    // Try HID (PowerSaves Portal or Disney Infinity Base)
+    // Try HID (PowerSaves Portal, PowerSaves 3DS, or Disney Infinity Base)
     navigator.hid?.getDevices().then(async (devices) => {
       const psDevice = devices.find((d) =>
         POWERSAVE_FILTERS.some(
@@ -275,6 +277,35 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           const info = await psDriver.initialize();
           log(`Connected: ${info.deviceName}`);
           finishConnect(psDriver, info, "POWERSAVE");
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+        return;
+      }
+
+      const ps3Device = devices.find((d) =>
+        POWERSAVE_3DS_FILTERS.some(
+          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
+        ),
+      );
+      if (ps3Device) {
+        log("Reconnecting to HID device...");
+        try {
+          const transport = new HidTransport(POWERSAVE_3DS_FILTERS);
+          const identity = await transport.connectWithDevice(ps3Device);
+          log(`HID device opened: ${identity.name}`);
+
+          transport.on("onDisconnect", () => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const ps3Driver = new PowerSave3DSDriver(transport);
+          ps3Driver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await ps3Driver.initialize();
+          log(`Connected: ${info.deviceName}`);
+          finishConnect(ps3Driver, info, "POWERSAVE_3DS");
         } catch (e) {
           log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
         }
@@ -386,6 +417,31 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await psDriver.initialize();
             log(`Connected: ${info.deviceName}`);
             finishConnect(psDriver, info, deviceId);
+            break;
+          }
+
+          case "POWERSAVE_3DS": {
+            const transport = new HidTransport(POWERSAVE_3DS_FILTERS);
+            if (authorized) {
+              log("Connecting...");
+              await transport.connectWithDevice(authorized as HIDDevice);
+            } else {
+              log("Requesting HID device...");
+              await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const ps3Driver = new PowerSave3DSDriver(transport);
+            ps3Driver.on("onLog", (msg, level) => log(msg, level));
+
+            log("Initializing device...");
+            const info = await ps3Driver.initialize();
+            log(`Connected: ${info.deviceName}`);
+            finishConnect(ps3Driver, info, deviceId);
             break;
           }
 

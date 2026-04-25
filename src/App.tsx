@@ -17,7 +17,9 @@ import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
 import { InfinityScanner } from "@/components/wizard/infinity-scanner";
+import { NDSScanner } from "@/components/wizard/nds-scanner";
 import type { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
+import type { NDSDeviceDriver } from "@/lib/systems/nds/nds-header";
 import type {
   DeviceDriver,
   DeviceInfo,
@@ -142,7 +144,10 @@ function App() {
     (_driver: DeviceDriver, _info: DeviceInfo) => {
       // Scanner-based devices handle detection in their own polling loop
       const isScanner = _driver.capabilities.some(
-        (c) => c.systemId === "amiibo" || c.systemId === "disney-infinity",
+        (c) =>
+          c.systemId === "amiibo" ||
+          c.systemId === "disney-infinity" ||
+          c.systemId === "nds_save",
       );
       if (!isScanner) autoDetectSystem(_driver);
     },
@@ -176,6 +181,9 @@ function App() {
     connection.driver?.capabilities.some(
       (c) => c.systemId === "disney-infinity",
     ) ?? false;
+  const isNDSSaveDevice =
+    connection.driver?.capabilities.some((c) => c.systemId === "nds_save") ??
+    false;
 
   const badgeState = useMemo(() => {
     if (dumpJob.state !== "idle") return dumpJob.state;
@@ -330,6 +338,14 @@ function App() {
                 deviceInfo={connection.deviceInfo}
                 onDisconnect={handleDisconnect}
                 log={log}
+              />
+            ) : isNDSSaveDevice ? (
+              <NDSScanner
+                driver={connection.driver! as NDSDeviceDriver}
+                deviceInfo={connection.deviceInfo}
+                onDisconnect={handleDisconnect}
+                log={log}
+                nointroDb={nointro.getDb("nds_save")}
               />
             ) : (
               <div className="flex flex-col gap-6">

@@ -22,6 +22,7 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 | --- | --- | --- |
 | [GBxCart RW](https://www.gbxcart.com/) v1.4 Pro | Web Serial | Game Boy, Game Boy Color, Game Boy Advance |
 | [PowerSaves for Amiibo](https://www.yourpowersaves.com/) | WebHID | Amiibo (NTAG215) |
+| PowerSaves for 3DS | WebHID | DS cartridge saves |
 
 This is still early. More hardware and more systems are in the works.
 
@@ -29,6 +30,7 @@ This is still early. More hardware and more systems are in the works.
 
 - **Dumps ROMs** from Game Boy, Game Boy Color, and Game Boy Advance cartridges
 - **Backs up save data** (SRAM, Flash, EEPROM)
+- **Backs up DS cartridge saves** via the PowerSaves 3DS adapter
 - **Reads Amiibo** tags (and generic NTAG215 tags, best-effort)
 - **Verifies dumps** against the No-Intro database using CRC32, SHA-1, and SHA-256
 - **Auto-detects** the inserted cartridge -- title, mapper, ROM size, save type
@@ -58,5 +60,10 @@ npm run lint
 
 See [THIRD-PARTY-LICENSES](THIRD-PARTY-LICENSES) for attribution of code
 derived from [FlashGBX](https://github.com/lesserkuma/FlashGBX),
-[amiigo](https://github.com/malc0mn/amiigo), and
+[amiigo](https://github.com/malc0mn/amiigo),
+[powerslaves](https://github.com/kitlith/powerslaves),
+[ndstool](https://github.com/devkitPro/ndstool), and
 [AmiiboAPI](https://github.com/N3evin/AmiiboAPI).
+
+PowerSaves and Datel are trademarks of Datel Ltd. nabu is not affiliated
+with or endorsed by Datel.
