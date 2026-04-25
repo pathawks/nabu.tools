@@ -28,9 +28,21 @@ export class PowerSaveDriver implements DeviceDriver {
   transport: HidTransport;
   private events: Partial<DeviceDriverEvents> = {};
   private ledOn = false;
+  private lastSignature: Uint8Array | null = null;
 
   constructor(transport: HidTransport) {
     this.transport = transport;
+  }
+
+  /**
+   * 32-byte NXP ECC signature of the most recently authenticated Amiibo,
+   * captured during the init dance. Cleared when a new tag arrives; null
+   * before the first successful authentication. Useful for NTAG-genuineness
+   * verification (the signature is computed by NXP over the UID with their
+   * private key; the public key is published).
+   */
+  get amiiboSignature(): Uint8Array | null {
+    return this.lastSignature;
   }
 
   async initialize(): Promise<DeviceInfo> {
@@ -57,6 +69,7 @@ export class PowerSaveDriver implements DeviceDriver {
         await this.sendCmd(CMD.SET_LED_STATE, [0x00]);
         this.ledOn = false;
       }
+      this.lastSignature = null;
       return null;
     }
 
@@ -79,6 +92,12 @@ export class PowerSaveDriver implements DeviceDriver {
    */
   async readROM(config: ReadConfig, signal?: AbortSignal): Promise<Uint8Array> {
     const uid = config.params.uid as Uint8Array;
+
+    // Capture the NXP ECC signature before branching — it's available on any
+    // NTAG21x tag without auth (blank PowerTag, Amiibo, NDEF tag, etc.), and
+    // this is the only code path where the tag is guaranteed to be selected.
+    await this.captureSignature();
+
     const cc = await this.readCc();
 
     if (cc?.isAmiibo) {
@@ -136,6 +155,18 @@ export class PowerSaveDriver implements DeviceDriver {
 
   on<K extends keyof DeviceDriverEvents>(event: K, handler: DeviceDriverEvents[K]): void {
     this.events[event] = handler;
+  }
+
+  /**
+   * Issue READ_SIGNATURE and cache the 32-byte NXP ECC signature. Works on
+   * any NTAG21x (Amiibo, blank PowerTag, generic NDEF) without auth. Silently
+   * clears the cache on failure so callers can't confuse stale data with a
+   * missing signature.
+   */
+  private async captureSignature(): Promise<void> {
+    const { data, isError } = await this.sendCmd(CMD.READ_SIGNATURE);
+    // Response layout: 2 status bytes + 32 signature bytes.
+    this.lastSignature = isError ? null : data.slice(2, 34);
   }
 
   /** Turn the portal LED off. Called by the scanner on tag removal. */

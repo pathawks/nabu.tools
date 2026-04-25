@@ -37,6 +37,17 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
       "Protocol: github.com/malc0mn/amiigo",
   },
+  DISNEY_INFINITY: {
+    id: "DISNEY_INFINITY",
+    name: "Disney Infinity Base",
+    vendorId: 0x0e6f,
+    productId: 0x0129,
+    transport: "webhid",
+    systems: [{ id: "disney-infinity", name: "Disney Infinity Figures" }],
+    notes:
+      "Logic3/PDP Wii/Wii U/PS3/PS4/PC base (INF-8032386). " +
+      "Protocol reference: dolphin-emu (GPL-2.0-or-later).",
+  },
   EMS_NDS: {
     id: "EMS_NDS",
     name: "EMS NDS Adapter Plus",

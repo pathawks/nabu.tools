@@ -134,11 +134,20 @@ export function AmiiboScanner({
                     label="UID"
                     value={result.parsed.uidFormatted}
                     mono
-                    badge={result.parsed.uidValid ? "valid" : "invalid"}
+                    badge={result.rewritten ? "rewritten" : undefined}
                   />
                   <InfoRow label="CRC32" value={hexStr(result.hashes.crc32)} mono />
                   <InfoRow label="SHA-1" value={result.hashes.sha1} mono truncate />
                   <InfoRow label="SHA-256" value={result.hashes.sha256 ?? ""} mono truncate />
+                  {result.signature && (
+                    <InfoRow
+                      label="NXP Sig"
+                      value={signatureHex(result.signature)}
+                      mono
+                      truncate
+                      badge={result.signatureValid ? "genuine" : "clone"}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -168,6 +177,10 @@ export function AmiiboScanner({
   );
 }
 
+function signatureHex(sig: Uint8Array): string {
+  return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function InfoRow({
   label,
   value,
@@ -179,7 +192,7 @@ function InfoRow({
   label: string;
   value: string;
   mono?: boolean;
-  badge?: "valid" | "invalid";
+  badge?: "genuine" | "clone" | "rewritten";
   link?: boolean;
   truncate?: boolean;
 }) {
@@ -209,7 +222,7 @@ function InfoRow({
       {badge && (
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            badge === "valid"
+            badge === "genuine"
               ? "bg-primary/20 text-primary"
               : "bg-destructive/20 text-destructive"
           }`}

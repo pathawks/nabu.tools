@@ -6,7 +6,9 @@ import { HidTransport } from "@/lib/transport/hid-transport";
 import { UsbTransport } from "@/lib/transport/usb-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
-import { DEVICE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
+import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
 import { EMSNDSDriver } from "@/lib/drivers/ems-nds/ems-nds-driver";
 import { EMS_NDS_FILTER } from "@/lib/drivers/ems-nds/ems-nds-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
@@ -281,17 +283,17 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
     });
 
-    // Try HID (PowerSave Portal)
+    // Try HID (PowerSaves Portal or Disney Infinity Base)
     navigator.hid?.getDevices().then(async (devices) => {
       const psDevice = devices.find((d) =>
-        DEVICE_FILTERS.some(
+        POWERSAVE_FILTERS.some(
           (f) => f.vendorId === d.vendorId && f.productId === d.productId,
         ),
       );
       if (psDevice) {
         log("Reconnecting to HID device...");
         try {
-          const transport = new HidTransport(DEVICE_FILTERS);
+          const transport = new HidTransport(POWERSAVE_FILTERS);
           const identity = await transport.connectWithDevice(psDevice);
           log(`HID device opened: ${identity.name}`);
 
@@ -306,6 +308,35 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           const info = await psDriver.initialize();
           log(`Connected: ${info.deviceName}`);
           finishConnect(psDriver, info, "POWERSAVE");
+        } catch (e) {
+          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+        }
+        return;
+      }
+
+      const infDevice = devices.find((d) =>
+        INFINITY_FILTERS.some(
+          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
+        ),
+      );
+      if (infDevice) {
+        log("Reconnecting to HID device...");
+        try {
+          const transport = new HidTransport(INFINITY_FILTERS);
+          const identity = await transport.connectWithDevice(infDevice);
+          log(`HID device opened: ${identity.name}`);
+
+          transport.on("onDisconnect", () => {
+            log("Device disconnected", "warn");
+            handleDisconnect();
+          });
+
+          const infDriver = new InfinityDriver(transport);
+          infDriver.on("onLog", (msg, level) => log(msg, level));
+
+          const info = await infDriver.initialize();
+          log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+          finishConnect(infDriver, info, "DISNEY_INFINITY");
         } catch (e) {
           log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
         }
@@ -368,7 +399,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           }
 
           case "POWERSAVE": {
-            const transport = new HidTransport(DEVICE_FILTERS);
+            const transport = new HidTransport(POWERSAVE_FILTERS);
             if (authorized) {
               log("Connecting...");
               await transport.connectWithDevice(authorized as HIDDevice);
@@ -388,6 +419,31 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await psDriver.initialize();
             log(`Connected: ${info.deviceName}`);
             finishConnect(psDriver, info, deviceId);
+            break;
+          }
+
+          case "DISNEY_INFINITY": {
+            const transport = new HidTransport(INFINITY_FILTERS);
+            if (authorized) {
+              log("Connecting...");
+              await transport.connectWithDevice(authorized as HIDDevice);
+            } else {
+              log("Requesting HID device...");
+              await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const infDriver = new InfinityDriver(transport);
+            infDriver.on("onLog", (msg, level) => log(msg, level));
+
+            log("Activating base...");
+            const info = await infDriver.initialize();
+            log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+            finishConnect(infDriver, info, deviceId);
             break;
           }
 
