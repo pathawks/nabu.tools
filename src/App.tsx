@@ -17,8 +17,9 @@ import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
 import { InfinityScanner } from "@/components/wizard/infinity-scanner";
-import type { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { NDSScanner } from "@/components/wizard/nds-scanner";
+import type { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
+import type { NDSDeviceDriver } from "@/lib/systems/nds/nds-header";
 import type {
   DeviceDriver,
   DeviceInfo,
@@ -340,10 +341,11 @@ function App() {
               />
             ) : isNDSSaveDevice ? (
               <NDSScanner
-                driver={connection.driver!}
+                driver={connection.driver! as NDSDeviceDriver}
                 deviceInfo={connection.deviceInfo}
                 onDisconnect={handleDisconnect}
                 log={log}
+                nointroDb={nointro.getDb("nds_save")}
               />
             ) : (
               <div className="flex flex-col gap-6">

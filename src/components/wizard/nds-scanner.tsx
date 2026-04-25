@@ -1,17 +1,19 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useNDSScanner } from "@/hooks/use-nds-scanner";
 import { hexStr, formatBytes } from "@/lib/core/hashing";
 import { saveFile } from "@/lib/core/file-save";
-import type { DeviceDriver, DeviceInfo } from "@/lib/types";
+import type { DeviceInfo, VerificationDB } from "@/lib/types";
+import type { NDSDeviceDriver } from "@/lib/systems/nds/nds-header";
 
 interface NDSScannerProps {
-  driver: DeviceDriver;
+  driver: NDSDeviceDriver;
   deviceInfo: DeviceInfo | null;
   onDisconnect: () => void;
   log: (msg: string, level?: "info" | "warn" | "error") => void;
+  nointroDb?: VerificationDB | null;
 }
 
 export function NDSScanner({
@@ -19,8 +21,20 @@ export function NDSScanner({
   deviceInfo,
   onDisconnect,
   log,
+  nointroDb = null,
 }: NDSScannerProps) {
-  const { phase, result, error, progress } = useNDSScanner(driver, log);
+  const { phase, result, error, progress, cartInfo } = useNDSScanner(
+    driver,
+    log,
+    nointroDb,
+  );
+
+  // Expose the driver on window for devtools console experiments. Useful
+  // for iterating protocol probes without a rebuild; no secrets exposed.
+  useEffect(() => {
+    (window as unknown as { __nabuDriver?: NDSDeviceDriver }).__nabuDriver =
+      driver;
+  }, [driver]);
 
   const handleDownload = useCallback(() => {
     if (!result) return;
@@ -34,9 +48,11 @@ export function NDSScanner({
         {deviceInfo && (
           <span className="text-muted-foreground">
             {deviceInfo.deviceName}
-            <span className="ml-2 text-muted-foreground/50">
-              fw {deviceInfo.firmwareVersion}
-            </span>
+            {deviceInfo.firmwareVersion && (
+              <span className="ml-2 text-muted-foreground/50">
+                fw {deviceInfo.firmwareVersion}
+              </span>
+            )}
           </span>
         )}
         <Button variant="outline" size="sm" onClick={onDisconnect}>
@@ -48,7 +64,10 @@ export function NDSScanner({
       {error && (
         <Alert variant="destructive">
           <AlertDescription>
-            {error} — remove the cartridge and try again.
+            {error}
+            <br />
+            Unplug the adapter from USB, wait 3 seconds, plug it back in, and
+            reconnect to try again.
           </AlertDescription>
         </Alert>
       )}
@@ -68,21 +87,63 @@ export function NDSScanner({
       {/* Reading state */}
       {phase === "reading" && (
         <Card>
-          <CardContent className="flex flex-col gap-3 py-6">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-chart-3">Reading save data...</span>
-              {progress && (
-                <span className="font-mono text-xs text-muted-foreground">
-                  {formatBytes(progress.bytesRead)} /{" "}
-                  {formatBytes(progress.totalBytes)}
-                </span>
-              )}
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-chart-3 transition-all duration-150"
-                style={{ width: `${(progress?.fraction ?? 0) * 100}%` }}
-              />
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
+              Save Backup In Progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {cartInfo && (
+              <div className="grid grid-flow-col grid-rows-2 gap-x-6 gap-y-2 md:grid-cols-3">
+                {cartInfo.title && (
+                  <InfoRow label="Game" value={cartInfo.title} />
+                )}
+                {cartInfo.meta?.gameCode != null && (
+                  <InfoRow
+                    label="Game Code"
+                    value={cartInfo.meta.gameCode as string}
+                    mono
+                  />
+                )}
+                {cartInfo.meta?.makerCode != null && (
+                  <InfoRow
+                    label="Maker"
+                    value={cartInfo.meta.makerCode as string}
+                  />
+                )}
+                {cartInfo.meta?.region != null && (
+                  <InfoRow
+                    label="Region"
+                    value={cartInfo.meta.region as string}
+                  />
+                )}
+                {cartInfo.saveType && (
+                  <InfoRow label="Save Type" value={cartInfo.saveType} />
+                )}
+                {cartInfo.saveSize != null && (
+                  <InfoRow
+                    label="Save Size"
+                    value={formatBytes(cartInfo.saveSize)}
+                  />
+                )}
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-chart-3">Reading save data...</span>
+                {progress && (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {formatBytes(progress.bytesRead)} /{" "}
+                    {formatBytes(progress.totalBytes)}
+                  </span>
+                )}
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-chart-3 transition-all duration-150"
+                  style={{ width: `${(progress?.fraction ?? 0) * 100}%` }}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -171,7 +232,7 @@ export function NDSScanner({
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={handleDownload}>
                   Save File
                 </Button>

@@ -466,11 +466,9 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             emsDriver.on("onLog", (msg, level) => log(msg, level));
 
             log("Initializing device...");
-            const emsInfo = await emsDriver.initialize();
-            log(
-              `Connected: ${emsInfo.deviceName} (fw: ${emsInfo.firmwareVersion})`,
-            );
-            finishConnect(emsDriver, emsInfo, deviceId);
+            const info = await emsDriver.initialize();
+            log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
+            finishConnect(emsDriver, info, deviceId);
             break;
           }
         }

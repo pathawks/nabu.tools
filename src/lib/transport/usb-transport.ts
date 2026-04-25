@@ -42,6 +42,16 @@ export class UsbTransport implements Transport {
     return this.device?.opened ?? false;
   }
 
+  /**
+   * Expose the underlying USBDevice so drivers can run out-of-band probes
+   * (e.g. sibling-protocol detection on shared VID/PID) without relying on
+   * `navigator.usb.getDevices().find(...)`, which can pick the wrong device
+   * when multiple matching units are paired.
+   */
+  getDevice(): USBDevice | null {
+    return this.device;
+  }
+
   /** Prompt the user to select a USB device. */
   async connect(_options?: TransportConnectOptions): Promise<DeviceIdentity> {
     const device = await navigator.usb!.requestDevice({
