@@ -39,7 +39,7 @@ export const DEVICES: Record<string, DeviceDef> = {
   },
   EMS_NDS: {
     id: "EMS_NDS",
-    name: "EMS NDS Adapter Plus",
+    name: "EMS NDS Adaptor Plus",
     vendorId: 0x4670,
     productId: 0x9394,
     transport: "webusb",

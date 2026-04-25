@@ -66,7 +66,7 @@ export function NDSScanner({
           <AlertDescription>
             {error}
             <br />
-            Unplug the adapter from USB, wait 3 seconds, plug it back in, and
+            Unplug the adaptor from USB, wait 3 seconds, plug it back in, and
             reconnect to try again.
           </AlertDescription>
         </Alert>

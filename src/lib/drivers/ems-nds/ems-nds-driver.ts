@@ -52,7 +52,7 @@ const parseNDSHeader = (raw: Uint8Array): CardHeader =>
 
 export class EMSNDSDriver implements NDSDeviceDriver {
   readonly id = "EMS_NDS";
-  readonly name = "EMS NDS Adapter Plus";
+  readonly name = "EMS NDS Adaptor Plus";
   readonly capabilities: DeviceCapability[] = [
     {
       systemId: "nds_save",
@@ -95,14 +95,14 @@ export class EMSNDSDriver implements NDSDeviceDriver {
       throw new Error(
         `Device did not respond to GET_STATUS: ${msg}. ` +
           `If this is an EMS Game Boy USB Smart Card (same VID/PID as the ` +
-          `NDS Adapter+), it's not supported by this driver. Otherwise, try ` +
-          `unplugging the adapter, waiting 3 seconds, and reconnecting.`,
+          `NDS Adaptor+), it's not supported by this driver. Otherwise, try ` +
+          `unplugging the adaptor, waiting 3 seconds, and reconnecting.`,
       );
     }
 
     if (statusBytes[5] !== STATUS_MARKER) {
       throw new Error(
-        `Device did not respond as an NDS Adapter ` +
+        `Device did not respond as an NDS Adaptor ` +
           `(marker=0x${statusBytes[5].toString(16).padStart(2, "0")}, ` +
           `expected 0x${STATUS_MARKER.toString(16).padStart(2, "0")}). ` +
           "This may be an EMS Game Boy flash cart (same USB IDs, different protocol).",
@@ -114,7 +114,7 @@ export class EMSNDSDriver implements NDSDeviceDriver {
     this.log(`Firmware ${fw.display} (raw=${fw.raw})`);
     if (fw.recovery) {
       throw new Error(
-        `Adapter reports firmware in recovery state (${fw.display}). ` +
+        `Adaptor reports firmware in recovery state (${fw.display}). ` +
           `The firmware is damaged or mid-update; re-flash via the ` +
           `official EMS upgrader before attempting cart I/O.`,
       );
@@ -492,7 +492,7 @@ export class EMSNDSDriver implements NDSDeviceDriver {
         // writes. Tell them to do that.
         throw new Error(
           `Save read stalled at offset 0x${offset.toString(16)}. ` +
-            `Unplug the EMS adapter from USB, wait 3 seconds, plug it back in, ` +
+            `Unplug the EMS adaptor from USB, wait 3 seconds, plug it back in, ` +
             `and reconnect to retry. Do not attempt to continue without a ` +
             `physical disconnect — the driver intentionally does not try to ` +
             `auto-recover because doing so has been observed to corrupt save data.`,

@@ -157,7 +157,7 @@ export function useNDSScanner(
         // the adapter from USB and reconnect — that's handled by
         // rebuilding the scanner with a fresh driver instance.
         log(
-          "Dump complete. Disconnect the adapter from USB to dump another cartridge.",
+          "Dump complete. Disconnect the adaptor from USB to dump another cartridge.",
         );
       } catch (e) {
         if (signal.aborted) return;
