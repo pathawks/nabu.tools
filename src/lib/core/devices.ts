@@ -37,6 +37,17 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
       "Protocol: github.com/malc0mn/amiigo",
   },
+  EMS_NDS: {
+    id: "EMS_NDS",
+    name: "EMS NDS Adaptor Plus",
+    vendorId: 0x4670,
+    productId: 0x9394,
+    transport: "webusb",
+    systems: [{ id: "nds_save", name: "NDS / 3DS (Saves Only)" }],
+    notes:
+      "Save backup/restore only — does NOT dump ROMs. " +
+      "Protocol: github.com/Thulinma/ndsplus",
+  },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
     name: "Disney Infinity Base",

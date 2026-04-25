@@ -3,6 +3,19 @@ open-source projects. Their original license texts are reproduced below.
 
 ================================================================================
 
+ndsplus
+https://github.com/Thulinma/ndsplus
+
+EMS NDS Adapter+ protocol commands, save type detection, and bulk transfer
+sequences in src/lib/drivers/ems-nds/ were derived from the ndsplus Linux
+command-line tool by Thulinma.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
 FlashGBX
 https://github.com/lesserkuma/FlashGBX
 
@@ -43,6 +56,63 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+
+powerslaves
+https://github.com/kitlith/powerslaves
+
+PowerSaves 3DS HID protocol (packet framing, opcodes, mode-switch sequence,
+SPI/NTR passthrough) in src/lib/drivers/powersave-3ds/ was ported from the
+powerslaves C library.
+
+License: MIT
+
+Copyright (c) 2017 kitlith
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+
+ndsplus
+https://github.com/Thulinma/ndsplus
+
+EMS NDS Adapter+ USB protocol commands and save read/write sequences in
+src/lib/drivers/ems-nds/ were implemented from the ndsplus reference
+implementation by Thulinma.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
+ndstool (devkitPro)
+https://github.com/devkitPro/ndstool
+
+NDS maker-code → publisher name lookup table in
+src/lib/systems/nds/nds-maker-codes.ts was derived from ndstool's
+ndscodes.cpp.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
 
 ================================================================================
 
