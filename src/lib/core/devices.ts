@@ -37,6 +37,18 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
       "Protocol: github.com/malc0mn/amiigo",
   },
+  POWERSAVE_3DS: {
+    id: "POWERSAVE_3DS",
+    name: "PowerSaves for 3DS",
+    vendorId: 0x1c1a,
+    productId: 0x03d5,
+    transport: "webhid",
+    systems: [{ id: "nds_save", name: "DS (Saves Only)" }],
+    notes:
+      "Datel PowerSaves — despite the 3DS branding, reads DS cart saves " +
+      "via the device's generic NTR + SPI passthrough. Protocol: " +
+      "github.com/kitlith/powerslaves (MIT).",
+  },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
     name: "Disney Infinity Base",
