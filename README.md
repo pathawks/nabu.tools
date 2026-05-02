@@ -21,9 +21,24 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 | Device | Connection | Systems |
 | --- | --- | --- |
 | [GBxCart RW](https://www.gbxcart.com/) v1.4 Pro | Web Serial | Game Boy, Game Boy Color, Game Boy Advance |
-| [PowerSaves for Amiibo](https://www.yourpowersaves.com/) | WebHID | Amiibo (NTAG215) |
+| PowerSaves for Amiibo | WebHID | Amiibo (NTAG215) |
 
 This is still early. More hardware and more systems are in the works.
+
+## Linux setup
+
+Linux blocks browser access to USB devices by default — they won't appear in
+Chrome's device picker until a udev rule grants the desktop user access. Each
+device's info button on the connect screen shows the rule it needs, or you can
+drop in [`linux/99-nabu.rules`](linux/99-nabu.rules) which covers every
+supported device:
+
+```sh
+sudo cp linux/99-nabu.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Then unplug and replug the device. macOS and Windows don't need this.
 
 ## What It Does
 

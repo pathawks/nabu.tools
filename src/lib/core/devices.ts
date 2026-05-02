@@ -7,13 +7,18 @@ export interface DeviceDef {
   productId: number | null;
   transport: TransportType;
   systems: { id: string; name: string }[];
-  notes: string;
+  /** Known model identifiers, e.g. ["CECHZM1", "SCPH-98042"]. */
+  models?: string[];
+  /** Official homepage / product page, when one still exists. */
+  homepage?: string;
+  /** User-facing prose: 1–2 sentences. What is it, what does it do. */
+  description: string;
 }
 
 export const DEVICES: Record<string, DeviceDef> = {
   GBXCART: {
     id: "GBXCART",
-    name: "GBxCart RW v1.4 Pro",
+    name: "GBxCart RW",
     vendorId: 0x1a86,
     productId: 0x7523,
     transport: "serial",
@@ -22,9 +27,11 @@ export const DEVICES: Record<string, DeviceDef> = {
       { id: "gbc", name: "Game Boy Color" },
       { id: "gba", name: "Game Boy Advance" },
     ],
-    notes:
-      "Open-source by insideGadgets. Uses CH340 serial. " +
-      "Protocol: github.com/lesserkuma/FlashGBX",
+    models: ["v1.4 Pro"],
+    homepage: "https://www.gbxcart.com/",
+    description:
+      "Open-source Game Boy / Game Boy Color / Game Boy Advance cartridge " +
+      "reader by insideGadgets. Uses a CH340 USB-serial chip.",
   },
   POWERSAVE: {
     id: "POWERSAVE",
@@ -33,9 +40,9 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x03d9,
     transport: "webhid",
     systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
-    notes:
-      "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
-      "Protocol: github.com/malc0mn/amiigo",
+    description:
+      "Datel NFC portal for reading and writing Amiibo (NTAG215) tags. " +
+      "Also recognizes MaxLander and NaMiio clones.",
   },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
@@ -44,9 +51,10 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x0129,
     transport: "webhid",
     systems: [{ id: "disney-infinity", name: "Disney Infinity Figures" }],
-    notes:
-      "Logic3/PDP Wii/Wii U/PS3/PS4/PC base (INF-8032386). " +
-      "Protocol reference: dolphin-emu (GPL-2.0-or-later).",
+    models: ["INF-8032386"],
+    description:
+      "Logic3 / PDP Disney Infinity Base. Reads Disney Infinity figures " +
+      "(Wii / Wii U / PS3 / PS4 / PC variant).",
   },
   // The adapter performs an SIO-level identification challenge before
   // reporting a card type. First-party PS1 cards reply with the expected
@@ -61,10 +69,10 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x02ea,
     transport: "webusb",
     systems: [{ id: "ps1", name: "PS1 Memory Card" }],
-    notes:
-      "PS1 cards only; PS2 reads require encryption keys that cannot be " +
-      "redistributed. First-party cards detect instantly; clone cards " +
-      "may need a few retries. " +
-      "Protocol reference: github.com/paolo-caroni/ps3mca-ps1 (GPL-3.0).",
+    models: ["CECHZM1", "SCPH-98042"],
+    description:
+      "Sony's PlayStation 3 adapter for PlayStation 1 and 2 memory cards. " +
+      "Only PS1 cards are dumpable in the browser (PS2 reads require " +
+      "MagicGate authentication keys that cannot be redistributed).",
   },
 };

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DEVICES } from "@/lib/core/devices";
+import { DeviceInfoDialog } from "@/components/wizard/device-info-dialog";
 
 interface ConnectStepProps {
   onConnect: (deviceId: string) => void;
@@ -87,13 +88,16 @@ export function ConnectStep({
                       {dev.systems.map((s) => s.name).join(", ")}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => onConnect(dev.id)}
-                    disabled={!transportAvailable[dev.transport]}
-                  >
-                    Connect
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <DeviceInfoDialog device={dev} />
+                    <Button
+                      size="sm"
+                      onClick={() => onConnect(dev.id)}
+                      disabled={!transportAvailable[dev.transport]}
+                    >
+                      Connect
+                    </Button>
+                  </div>
                 </div>
               );
             })}

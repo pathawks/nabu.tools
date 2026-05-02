@@ -1,0 +1,17 @@
+# nabu — udev rules for cartridge dumper devices
+# Install:
+#   sudo cp 99-nabu.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   (then unplug and replug the device)
+#
+# TAG+="uaccess" grants the active desktop user an ACL via systemd-logind.
+# MODE="0660" keeps everyone else out as a floor.
+
+# GBXCART — GBxCart RW
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", TAG+="uaccess", MODE="0660"
+# POWERSAVE — PowerSaves for Amiibo
+KERNEL=="hidraw*", ATTRS{idVendor}=="1c1a", ATTRS{idProduct}=="03d9", TAG+="uaccess", MODE="0660"
+# DISNEY_INFINITY — Disney Infinity Base
+KERNEL=="hidraw*", ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0129", TAG+="uaccess", MODE="0660"
+# PS3_MCA — PS3 Memory Card Adaptor
+SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="02ea", TAG+="uaccess", MODE="0660"
