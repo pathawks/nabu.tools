@@ -61,9 +61,18 @@ export class UsbTransport implements Transport {
   }
 
   private async openDevice(device: USBDevice): Promise<DeviceIdentity> {
-    await device.open();
-    await device.selectConfiguration(1);
-    await device.claimInterface(0);
+    // Device may already be open + claimed after Vite HMR or StrictMode
+    // double-mount (no full page unload). Re-claiming throws "Unable to
+    // claim interface", so check before each step.
+    if (!device.opened) {
+      await device.open();
+    }
+    if (device.configuration?.configurationValue !== 1) {
+      await device.selectConfiguration(1);
+    }
+    if (!device.configuration?.interfaces[0]?.claimed) {
+      await device.claimInterface(0);
+    }
 
     this.device = device;
 
