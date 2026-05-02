@@ -324,6 +324,8 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
         ),
       );
       if (!ps3Device) return;
+      // Another auto-reconnect probe (serial/HID) may have already won.
+      if (driverRef.current) return;
 
       log("Reconnecting to USB device...");
       try {

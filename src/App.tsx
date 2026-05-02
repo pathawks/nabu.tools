@@ -151,11 +151,15 @@ function App() {
             reason,
           });
           setSelectedSystem(null);
+          setAutoDetected(null);
+          setConfigValues({});
           return;
         }
 
         if (!result) {
           log("No cartridge detected", "warn");
+          setAutoDetected(null);
+          setConfigValues({});
           // If the driver has exactly one dumpable system, pre-select it so
           // the user has a Start Dump button once they insert the right card.
           const dumpableIds = new Set(
@@ -243,6 +247,15 @@ function App() {
     if (connection.driver) return "configuring" as const;
     return "idle" as const;
   }, [dumpJob.state, connection.driver]);
+
+  // Decoding the PS1 dump summary allocates fresh icon arrays per call, which
+  // would restart the IconCanvas animation on every unrelated re-render
+  // (e.g. log-panel updates). Memoize on the rom data reference.
+  const dumpSummary = useMemo(() => {
+    const data = dumpJob.result?.rom?.data;
+    if (!data) return null;
+    return selectedSystem?.summarizeDump?.(data) ?? null;
+  }, [selectedSystem, dumpJob.result?.rom?.data]);
 
   const handleSelectSystem = useCallback(
     async (system: SystemHandler) => {
@@ -509,13 +522,7 @@ function App() {
                         .find((c) => c.systemId === selectedSystem?.systemId)
                         ?.operations.includes("dump_rom")
                     }
-                    summary={
-                      dumpJob.result.rom
-                        ? (selectedSystem?.summarizeDump?.(
-                            dumpJob.result.rom.data,
-                          ) ?? null)
-                        : null
-                    }
+                    summary={dumpSummary}
                   />
                 )}
               </div>

@@ -229,10 +229,11 @@ function checkFrameXor(rawData: Uint8Array): {
 
 /**
  * Decode a save's icon frames to RGBA. Title-frame layout (psx-spx):
- * palette at +0x60 (16 × BGR555), icon frames at +0x80 / +0x100 / +0x180
- * (16×16, 4-bpp, low nibble first). The display flag at +0x02 selects 1-3
- * frames (0x11/0x12/0x13); animation rates are 16 / 11 PAL frames per icon
- * frame for 2 / 3 frame icons respectively.
+ * palette at +0x60 (16 × 16-bit colour: bits 0-4 R, 5-9 G, 10-14 B, bit 15
+ * = mask), icon frames at +0x80 / +0x100 / +0x180 (16×16, 4-bpp, low nibble
+ * first). The display flag at +0x02 selects 1-3 frames (0x11/0x12/0x13);
+ * animation rates are 16 / 11 PAL frames per icon frame for 2 / 3 frame
+ * icons respectively.
  */
 function decodeIcon(
   rawData: Uint8Array,

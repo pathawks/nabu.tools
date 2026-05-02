@@ -44,7 +44,12 @@ export class UsbTransport implements Transport {
 
   /** Prompt the user to select a USB device. */
   async connect(_options?: TransportConnectOptions): Promise<DeviceIdentity> {
-    const device = await navigator.usb!.requestDevice({
+    if (!navigator.usb) {
+      throw new Error(
+        "WebUSB is not available. Use Chrome 89+ over HTTPS or localhost.",
+      );
+    }
+    const device = await navigator.usb.requestDevice({
       filters: this.filters,
     });
     return this.openDevice(device);
@@ -107,21 +112,29 @@ export class UsbTransport implements Transport {
 
     const ep = options?.endpointIn ?? this.endpointIn;
     const timeout = options?.timeout ?? 5000;
-    const result = await Promise.race([
-      this.device.transferIn(ep, length),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("USB receive timeout")), timeout),
-      ),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        this.device.transferIn(ep, length),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error("USB receive timeout")),
+            timeout,
+          );
+        }),
+      ]);
 
-    if (result.data) {
-      return new Uint8Array(
-        result.data.buffer,
-        result.data.byteOffset,
-        result.data.byteLength,
-      );
+      if (result.data) {
+        return new Uint8Array(
+          result.data.buffer,
+          result.data.byteOffset,
+          result.data.byteLength,
+        );
+      }
+      return new Uint8Array(0);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
-    return new Uint8Array(0);
   }
 
   on<K extends keyof TransportEvents>(
@@ -133,6 +146,7 @@ export class UsbTransport implements Transport {
 
   private onDisconnect = (event: USBConnectionEvent) => {
     if (event.device === this.device) {
+      navigator.usb!.removeEventListener("disconnect", this.onDisconnect);
       this.device = null;
       this.events.onDisconnect?.();
     }
