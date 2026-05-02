@@ -48,4 +48,23 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Logic3/PDP Wii/Wii U/PS3/PS4/PC base (INF-8032386). " +
       "Protocol reference: dolphin-emu (GPL-2.0-or-later).",
   },
+  // The adapter performs an SIO-level identification challenge before
+  // reporting a card type. First-party PS1 cards reply with the expected
+  // ID bytes (0x5A 0x5D) on the first request; multi-page clone cards
+  // often fail to detect on the first try. The driver polls verify-card
+  // a handful of times to give clones a chance to come up
+  // (see Ps3McaDriver.getCardType).
+  PS3_MCA: {
+    id: "PS3_MCA",
+    name: "PS3 Memory Card Adaptor",
+    vendorId: 0x054c,
+    productId: 0x02ea,
+    transport: "webusb",
+    systems: [{ id: "ps1", name: "PS1 Memory Card" }],
+    notes:
+      "PS1 cards only; PS2 reads require encryption keys that cannot be " +
+      "redistributed. First-party cards detect instantly; clone cards " +
+      "may need a few retries. " +
+      "Protocol reference: github.com/paolo-caroni/ps3mca-ps1 (GPL-3.0).",
+  },
 };

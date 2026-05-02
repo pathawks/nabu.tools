@@ -133,6 +133,13 @@ export class GBxCartDriver implements DeviceDriver {
       hardwareRevision: `PCB v${pcbVersion}`,
       deviceName,
       capabilities: this.capabilities,
+      // TODO: enable hot-swap when we capture cart_power_ctrl and implement
+      // CART_PWR_OFF → prompt → CART_PWR_ON. Per FlashGBX hw_GBxCartRW.py:
+      //   fw_ver >= 12 → honour cart_power_ctrl byte
+      //   else         → pcb_ver in (5, 6)
+      // Driver currently discards those bytes at the "cart_power_ctrl and
+      // bootloader_reset" line above; hot-swap stays false until the follow-up.
+      hotSwap: false,
     };
   }
 

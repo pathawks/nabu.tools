@@ -14,37 +14,42 @@ import type {
   SystemHandler,
   ConfigValues,
   CartridgeInfo,
-  DeviceInfo,
 } from "@/lib/types";
 
 interface ConfigureStepProps {
-  deviceInfo: DeviceInfo | null;
   systems: SystemHandler[];
   selectedSystem: SystemHandler | null;
   onSelectSystem: (system: SystemHandler) => void;
   configValues: ConfigValues;
   onConfigChange: (key: string, value: unknown) => void;
   autoDetected: CartridgeInfo | null;
-  hasVerificationDb: boolean;
+  /** A cartridge was detected that the adapter can't read; render an explanation instead of the dump UI. */
+  unsupportedDetection?: { title: string; reason: string } | null;
+  /** Whether to hint that the user should load a No-Intro DAT. */
+  suggestLoadDat: boolean;
   detecting: boolean;
   busy: boolean;
   onStartDump: () => void;
-  onDisconnect: () => void;
+  /** Whether the device supports re-detection after a physical cart swap. */
+  hotSwap: boolean;
+  /** Optional cartridge-compatibility note shown under the "insert" prompt. */
+  compatibilityNote?: string;
 }
 
 export function ConfigureStep({
-  deviceInfo,
   systems,
   selectedSystem,
   onSelectSystem,
   configValues,
   onConfigChange,
   autoDetected,
-  hasVerificationDb,
+  unsupportedDetection,
+  suggestLoadDat,
   detecting,
   busy,
   onStartDump,
-  onDisconnect,
+  hotSwap,
+  compatibilityNote,
 }: ConfigureStepProps) {
   const fields = useMemo(
     () =>
@@ -84,22 +89,33 @@ export function ConfigureStep({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Device info — compact header line */}
-      <div className="flex items-center justify-between text-sm">
-        {deviceInfo && (
-          <span className="text-muted-foreground">
-            {deviceInfo.deviceName}
-            <span className="ml-2 text-muted-foreground/50">
-              fw {deviceInfo.firmwareVersion}
-            </span>
-          </span>
-        )}
-        <Button variant="outline" size="sm" onClick={onDisconnect}>
-          Swap Cartridge
-        </Button>
-      </div>
+      {/* Unsupported cartridge detected — show explanation instead of dump UI */}
+      {unsupportedDetection && !detecting && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
+              Detected
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Cartridge
+              </label>
+              <div className="font-mono text-sm">
+                {unsupportedDetection.title}
+              </div>
+            </div>
+            <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>{unsupportedDetection.reason}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* System + Configuration — single card */}
+      {!unsupportedDetection && (
       <Card>
         <CardHeader>
           <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">
@@ -214,21 +230,37 @@ export function ConfigureStep({
                     )}
 
                   <div className="mt-2 flex flex-col gap-2">
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      onClick={onStartDump}
-                      disabled={validation && !validation.valid}
-                    >
-                      Start Dump{dumpSizeLabel && ` (${dumpSizeLabel})`}
-                    </Button>
-                    {!hasVerificationDb &&
-                      selectedSystem?.fileExtension !== ".sav" && (
-                        <p className="text-center text-[11px] text-muted-foreground">
-                          Load a No-Intro DAT in the sidebar to verify your
-                          dump.
+                    {autoDetected ? (
+                      <>
+                        <Button
+                          className="w-full"
+                          size="lg"
+                          onClick={onStartDump}
+                          disabled={validation && !validation.valid}
+                        >
+                          Start Dump{dumpSizeLabel && ` (${dumpSizeLabel})`}
+                        </Button>
+                        {suggestLoadDat && (
+                          <p className="text-center text-[11px] text-muted-foreground">
+                            Load a No-Intro DAT in the sidebar to verify your
+                            dump.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <p className="text-center text-xs text-muted-foreground">
+                          {hotSwap
+                            ? "Insert a cartridge and click Scan."
+                            : "Insert a cartridge, then click Disconnect and reconnect."}
                         </p>
-                      )}
+                        {compatibilityNote && (
+                          <p className="text-center text-[11px] text-muted-foreground/70">
+                            {compatibilityNote}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -236,6 +268,7 @@ export function ConfigureStep({
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

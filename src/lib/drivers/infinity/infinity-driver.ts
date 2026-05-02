@@ -101,6 +101,8 @@ export class InfinityDriver implements DeviceDriver {
       firmwareVersion: version,
       deviceName: this.name,
       capabilities: this.capabilities,
+      // Portal emits async tag events; figures come and go freely.
+      hotSwap: true,
     };
   }
 

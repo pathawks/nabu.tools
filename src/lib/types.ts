@@ -75,6 +75,12 @@ export interface DeviceDriverEvents {
 export interface DetectSystemResult {
   systemId: SystemId;
   cartInfo: CartridgeInfo;
+  /**
+   * Set when a cartridge is detected but the driver cannot dump it
+   * (e.g. media that requires non-redistributable encryption keys).
+   * The wizard renders `reason` as an explanation instead of the dump UI.
+   */
+  unsupported?: { reason: string };
 }
 
 export interface DeviceDriver {
@@ -104,6 +110,20 @@ export interface DeviceInfo {
   hardwareRevision?: string;
   deviceName: string;
   capabilities: DeviceCapability[];
+  /**
+   * If true, the device can re-detect a freshly-inserted cartridge without
+   * a full USB disconnect/reconnect cycle. Defaults to false (conservative).
+   * Drivers opt in when they know the hardware supports it safely —
+   * e.g. natively hot-pluggable memory-card adapters, or GBxCart PCBs
+   * with programmatic cart-power control.
+   */
+  hotSwap?: boolean;
+  /**
+   * Optional one-line note about cartridge compatibility — surfaced under
+   * the "Insert a cartridge…" prompt to set user expectations before they
+   * try and fail.
+   */
+  compatibilityNote?: string;
 }
 
 export interface ReadConfig {
@@ -154,6 +174,45 @@ export interface SystemHandler {
     hashes: VerificationHashes,
     db: VerificationDB | null,
   ): VerificationResult;
+  /** Optional: extract a human-readable summary of a completed dump's contents. */
+  summarizeDump?(rawData: Uint8Array): DumpSummary | null;
+}
+
+/** A single cell in a {@link DumpSummary} row — text or a small bitmap (e.g. PS1 save icon). */
+export type DumpSummaryCell =
+  | string
+  | {
+      kind: "icon";
+      /** One or more RGBA frames at native resolution. Multiple frames animate. */
+      frames: Uint8ClampedArray<ArrayBuffer>[];
+      width: number;
+      height: number;
+      /** CSS upscale factor; the canvas itself is rendered at native size with `image-rendering: pixelated`. */
+      displayScale: number;
+      /** Per-frame duration in milliseconds when animating. */
+      frameDurationMs?: number;
+      alt?: string;
+    };
+
+export interface DumpSummary {
+  /** Heading shown above the table. */
+  title: string;
+  /** Column headers, in order. */
+  columns: string[];
+  /** Column indices to render in a monospace font (e.g., codes, IDs). */
+  monoColumns?: number[];
+  /** Column indices to render with muted/secondary text color (e.g., row IDs). */
+  mutedColumns?: number[];
+  /** Rows of cells; each row's length should equal `columns.length`. */
+  rows: DumpSummaryCell[][];
+  /** Optional summary line below the table (e.g., counts). */
+  footer?: string;
+  /**
+   * Optional integrity check (e.g. per-frame checksum). When `ok` is false,
+   * the dump is flagged as unverified in the UI even for save-only systems
+   * with no verification database.
+   */
+  integrity?: { ok: boolean; message?: string };
 }
 
 // ─── Config Fields ──────────────────────────────────────────────────────────
@@ -201,6 +260,19 @@ export interface OutputFile {
   filename: string;
   mimeType: string;
   meta?: Record<string, string>;
+  /**
+   * Optional list of equivalent file extensions to offer in the save dialog.
+   * Useful when the same byte content is conventionally given different
+   * names by different tools (e.g. PS1 memory cards: .mcr / .mcd).
+   * Defaults to the extension parsed from `filename`.
+   */
+  acceptExtensions?: string[];
+  /**
+   * Optional override for the action button label shown in CompleteStep
+   * (e.g. "Save Memory Card"). When unset, the UI picks a sensible default
+   * based on whether the dump is save-only or a ROM.
+   */
+  actionLabel?: string;
 }
 
 export interface VerificationHashes {

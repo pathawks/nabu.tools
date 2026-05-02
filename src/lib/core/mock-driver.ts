@@ -38,6 +38,7 @@ export class MockDriver implements DeviceDriver {
       firmwareVersion: "mock-1.0",
       deviceName: "Mock Device",
       capabilities: this.capabilities,
+      hotSwap: true,
     };
   }
 

@@ -46,6 +46,19 @@ SOFTWARE.
 
 ================================================================================
 
+ps3mca-ps1
+https://github.com/paolo-caroni/ps3mca-ps1
+
+PS3 Memory Card Adaptor protocol (command framing, opcodes, PS1 frame
+read/response layout) in src/lib/drivers/ps3-mca/ was ported from the
+paolo-caroni ps3mca-ps1 libusb driver.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
 AmiiboAPI
 https://github.com/N3evin/AmiiboAPI
 

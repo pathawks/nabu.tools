@@ -3,11 +3,14 @@ import { MockDriver } from "@/lib/core/mock-driver";
 import { DEVICES, type DeviceDef } from "@/lib/core/devices";
 import { SerialTransport } from "@/lib/transport/serial-transport";
 import { HidTransport } from "@/lib/transport/hid-transport";
+import { UsbTransport } from "@/lib/transport/usb-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
 import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
+import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
+import { DEVICE_FILTERS as PS3_MCA_FILTERS } from "@/lib/drivers/ps3-mca/ps3-mca-commands";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -202,6 +205,9 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
   const finishConnect = useCallback(
     (drv: DeviceDriver, info: DeviceInfo, deviceId?: string) => {
       if (deviceId) lastDeviceIdRef.current = deviceId;
+      // Set the ref synchronously so reprobe() can't race us into a duplicate
+      // connection before React commits the driver state update.
+      driverRef.current = drv;
       setDriver(drv);
       setDeviceInfo(info);
       setConnected(true);
@@ -309,6 +315,37 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
         }
       }
     });
+
+    // Try WebUSB (PS3 Memory Card Adaptor)
+    navigator.usb?.getDevices().then(async (devices) => {
+      const ps3Device = devices.find((d) =>
+        PS3_MCA_FILTERS.some(
+          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
+        ),
+      );
+      if (!ps3Device) return;
+
+      log("Reconnecting to USB device...");
+      try {
+        const transport = new UsbTransport(PS3_MCA_FILTERS);
+        const identity = await transport.connectWithDevice(ps3Device);
+        log(`USB device opened: ${identity.name}`);
+
+        transport.on("onDisconnect", () => {
+          log("Device disconnected", "warn");
+          handleDisconnect();
+        });
+
+        const ps3Driver = new Ps3McaDriver(transport);
+        ps3Driver.on("onLog", (msg, level) => log(msg, level));
+
+        const info = await ps3Driver.initialize();
+        log(`Connected: ${info.deviceName}`);
+        finishConnect(ps3Driver, info, "PS3_MCA");
+      } catch (e) {
+        log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -411,6 +448,30 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
             const info = await infDriver.initialize();
             log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
             finishConnect(infDriver, info, deviceId);
+            break;
+          }
+
+          case "PS3_MCA": {
+            const transport = new UsbTransport(PS3_MCA_FILTERS);
+            if (authorized) {
+              log("Connecting...");
+              await transport.connectWithDevice(authorized as USBDevice);
+            } else {
+              log("Requesting USB device...");
+              await transport.connect();
+            }
+
+            transport.on("onDisconnect", () => {
+              log("Device disconnected", "warn");
+              handleDisconnect();
+            });
+
+            const ps3Driver = new Ps3McaDriver(transport);
+            ps3Driver.on("onLog", (msg, level) => log(msg, level));
+
+            const info = await ps3Driver.initialize();
+            log(`Connected: ${info.deviceName}`);
+            finishConnect(ps3Driver, info, deviceId);
             break;
           }
         }
