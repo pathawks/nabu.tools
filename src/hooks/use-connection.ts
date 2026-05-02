@@ -1,16 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { MockDriver } from "@/lib/core/mock-driver";
 import { DEVICES, type DeviceDef } from "@/lib/core/devices";
-import { SerialTransport } from "@/lib/transport/serial-transport";
-import { HidTransport } from "@/lib/transport/hid-transport";
-import { UsbTransport } from "@/lib/transport/usb-transport";
-import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
-import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
-import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
-import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
-import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
-import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
-import { DEVICE_FILTERS as PS3_MCA_FILTERS } from "@/lib/drivers/ps3-mca/ps3-mca-commands";
+import { CONNECTION_ENTRIES } from "@/lib/core/connection-registry";
 import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
@@ -109,6 +100,12 @@ async function findAuthorized(
       return null;
   }
 }
+
+const TRANSPORT_LABEL: Record<string, string> = {
+  serial: "serial port",
+  webhid: "HID device",
+  webusb: "USB device",
+};
 
 type LogFn = (msg: string, level?: "info" | "warn" | "error") => void;
 
@@ -216,6 +213,66 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
     [onReady],
   );
 
+  /**
+   * Connect to a registered device.
+   *
+   * Three race-guard checkpoints (pre-I/O, post-findAuthorized, post-open)
+   * make it safe to call concurrently from auto-reconnect probes and the
+   * manual handleConnect path: whichever call publishes a driver first wins,
+   * and any later caller observes driverRef.current and bails — closing its
+   * transport on the rare 3-way tie so we don't leak a port.
+   *
+   * `auto: true` requires a previously-authorized device and never prompts
+   * the user (page-load reconnect has no user gesture to spend).
+   *
+   * Returns true if this call published a driver, false otherwise.
+   */
+  const connectDevice = useCallback(
+    async (deviceId: string, opts: { auto: boolean }): Promise<boolean> => {
+      if (driverRef.current) return false;
+
+      const entry = CONNECTION_ENTRIES[deviceId];
+      const dev = DEVICES[deviceId];
+      if (!entry || !dev) return false;
+
+      const authorized = await findAuthorized(dev);
+      if (opts.auto && !authorized) return false;
+      if (driverRef.current) return false;
+
+      const transport = entry.createTransport();
+      const transportLabel = TRANSPORT_LABEL[dev.transport] ?? dev.transport;
+      log(
+        opts.auto || authorized
+          ? "Connecting..."
+          : `Requesting ${transportLabel}...`,
+      );
+      const identity = await entry.connect(transport, { authorized });
+
+      if (driverRef.current) {
+        await transport.disconnect().catch(() => {});
+        return false;
+      }
+
+      log(`Opened ${transportLabel}: ${identity.name}`);
+
+      transport.on("onDisconnect", () => {
+        log("Device disconnected", "warn");
+        handleDisconnect();
+      });
+
+      const drv = entry.createDriver(transport);
+      drv.on("onLog", (msg, level) => log(msg, level));
+
+      log(entry.preInitLog ?? "Initializing device...");
+      const info = await drv.initialize();
+      log(entry.postInitLog?.(info) ?? `Connected: ${info.deviceName}`);
+
+      finishConnect(drv, info, deviceId);
+      return true;
+    },
+    [log, handleDisconnect, finishConnect],
+  );
+
   // ─── Auto-reconnect on page load ──────────────────────────────────────
 
   const autoConnectAttempted = useRef(false);
@@ -223,131 +280,15 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
     if (autoConnectAttempted.current) return;
     autoConnectAttempted.current = true;
 
-    // Try serial (GBxCart)
-    navigator.serial?.getPorts().then(async (ports) => {
-      if (ports.length !== 1) return;
-
-      log("Reconnecting to serial port...");
-      try {
-        const transport = new SerialTransport();
-        const identity = await transport.connectWithPort(ports[0], {
-          baudRate: 1_000_000,
-        });
-        log(
-          `Serial port opened: ${identity.vendorId?.toString(16)}:${identity.productId?.toString(16)}`,
-        );
-
-        transport.on("onDisconnect", () => {
-          log("Device disconnected", "warn");
-          handleDisconnect();
-        });
-
-        const gbxDriver = new GBxCartDriver(transport);
-        gbxDriver.on("onLog", (msg, level) => log(msg, level));
-
-        log("Initializing device...");
-        const info = await gbxDriver.initialize();
-        log(
-          `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, ${info.hardwareRevision})`,
-        );
-        finishConnect(gbxDriver, info, "GBXCART");
-      } catch (e) {
-        log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
-      }
-    });
-
-    // Try HID (PowerSaves Portal or Disney Infinity Base)
-    navigator.hid?.getDevices().then(async (devices) => {
-      const psDevice = devices.find((d) =>
-        POWERSAVE_FILTERS.some(
-          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
-        ),
-      );
-      if (psDevice) {
-        log("Reconnecting to HID device...");
+    (async () => {
+      for (const id of Object.keys(CONNECTION_ENTRIES)) {
         try {
-          const transport = new HidTransport(POWERSAVE_FILTERS);
-          const identity = await transport.connectWithDevice(psDevice);
-          log(`HID device opened: ${identity.name}`);
-
-          transport.on("onDisconnect", () => {
-            log("Device disconnected", "warn");
-            handleDisconnect();
-          });
-
-          const psDriver = new PowerSaveDriver(transport);
-          psDriver.on("onLog", (msg, level) => log(msg, level));
-
-          const info = await psDriver.initialize();
-          log(`Connected: ${info.deviceName}`);
-          finishConnect(psDriver, info, "POWERSAVE");
-        } catch (e) {
-          log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
-        }
-        return;
-      }
-
-      const infDevice = devices.find((d) =>
-        INFINITY_FILTERS.some(
-          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
-        ),
-      );
-      if (infDevice) {
-        log("Reconnecting to HID device...");
-        try {
-          const transport = new HidTransport(INFINITY_FILTERS);
-          const identity = await transport.connectWithDevice(infDevice);
-          log(`HID device opened: ${identity.name}`);
-
-          transport.on("onDisconnect", () => {
-            log("Device disconnected", "warn");
-            handleDisconnect();
-          });
-
-          const infDriver = new InfinityDriver(transport);
-          infDriver.on("onLog", (msg, level) => log(msg, level));
-
-          const info = await infDriver.initialize();
-          log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
-          finishConnect(infDriver, info, "DISNEY_INFINITY");
+          if (await connectDevice(id, { auto: true })) return;
         } catch (e) {
           log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
         }
       }
-    });
-
-    // Try WebUSB (PS3 Memory Card Adaptor)
-    navigator.usb?.getDevices().then(async (devices) => {
-      const ps3Device = devices.find((d) =>
-        PS3_MCA_FILTERS.some(
-          (f) => f.vendorId === d.vendorId && f.productId === d.productId,
-        ),
-      );
-      if (!ps3Device) return;
-      // Another auto-reconnect probe (serial/HID) may have already won.
-      if (driverRef.current) return;
-
-      log("Reconnecting to USB device...");
-      try {
-        const transport = new UsbTransport(PS3_MCA_FILTERS);
-        const identity = await transport.connectWithDevice(ps3Device);
-        log(`USB device opened: ${identity.name}`);
-
-        transport.on("onDisconnect", () => {
-          log("Device disconnected", "warn");
-          handleDisconnect();
-        });
-
-        const ps3Driver = new Ps3McaDriver(transport);
-        ps3Driver.on("onLog", (msg, level) => log(msg, level));
-
-        const info = await ps3Driver.initialize();
-        log(`Connected: ${info.deviceName}`);
-        finishConnect(ps3Driver, info, "PS3_MCA");
-      } catch (e) {
-        log(`Auto-reconnect failed: ${(e as Error).message}`, "warn");
-      }
-    });
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -372,111 +313,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
       }
 
       try {
-        const authorized = await findAuthorized(dev);
-
-        switch (deviceId) {
-          case "GBXCART": {
-            const transport = new SerialTransport();
-            if (authorized) {
-              log("Connecting...");
-              await transport.connectWithPort(authorized as SerialPort, {
-                baudRate: 1_000_000,
-              });
-            } else {
-              log("Requesting serial port...");
-              await transport.connect({ baudRate: 1_000_000 });
-            }
-
-            transport.on("onDisconnect", () => {
-              log("Device disconnected", "warn");
-              handleDisconnect();
-            });
-
-            const gbxDriver = new GBxCartDriver(transport);
-            gbxDriver.on("onLog", (msg, level) => log(msg, level));
-
-            log("Initializing device...");
-            const info = await gbxDriver.initialize();
-            log(
-              `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, ${info.hardwareRevision})`,
-            );
-            finishConnect(gbxDriver, info, deviceId);
-            break;
-          }
-
-          case "POWERSAVE": {
-            const transport = new HidTransport(POWERSAVE_FILTERS);
-            if (authorized) {
-              log("Connecting...");
-              await transport.connectWithDevice(authorized as HIDDevice);
-            } else {
-              log("Requesting HID device...");
-              await transport.connect();
-            }
-
-            transport.on("onDisconnect", () => {
-              log("Device disconnected", "warn");
-              handleDisconnect();
-            });
-
-            const psDriver = new PowerSaveDriver(transport);
-            psDriver.on("onLog", (msg, level) => log(msg, level));
-
-            const info = await psDriver.initialize();
-            log(`Connected: ${info.deviceName}`);
-            finishConnect(psDriver, info, deviceId);
-            break;
-          }
-
-          case "DISNEY_INFINITY": {
-            const transport = new HidTransport(INFINITY_FILTERS);
-            if (authorized) {
-              log("Connecting...");
-              await transport.connectWithDevice(authorized as HIDDevice);
-            } else {
-              log("Requesting HID device...");
-              await transport.connect();
-            }
-
-            transport.on("onDisconnect", () => {
-              log("Device disconnected", "warn");
-              handleDisconnect();
-            });
-
-            const infDriver = new InfinityDriver(transport);
-            infDriver.on("onLog", (msg, level) => log(msg, level));
-
-            log("Activating base...");
-            const info = await infDriver.initialize();
-            log(`Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`);
-            finishConnect(infDriver, info, deviceId);
-            break;
-          }
-
-          case "PS3_MCA": {
-            const transport = new UsbTransport(PS3_MCA_FILTERS);
-            if (authorized) {
-              log("Connecting...");
-              await transport.connectWithDevice(authorized as USBDevice);
-            } else {
-              log("Requesting USB device...");
-              await transport.connect();
-            }
-
-            transport.on("onDisconnect", () => {
-              log("Device disconnected", "warn");
-              handleDisconnect();
-            });
-
-            const ps3Driver = new Ps3McaDriver(transport);
-            ps3Driver.on("onLog", (msg, level) => log(msg, level));
-
-            const info = await ps3Driver.initialize();
-            log(`Connected: ${info.deviceName}`);
-            finishConnect(ps3Driver, info, deviceId);
-            break;
-          }
-        }
+        await connectDevice(deviceId, { auto: false });
       } catch (e) {
         const msg = (e as Error).message;
         if (
@@ -490,7 +327,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
         }
       }
     },
-    [log, handleDisconnect, finishConnect],
+    [log, connectDevice],
   );
 
   // Keep ref in sync so the probe effect can trigger reconnection
