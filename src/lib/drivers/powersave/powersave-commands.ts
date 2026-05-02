@@ -84,5 +84,4 @@ export const COMMAND_TIMEOUT_MS = 2000;
 
 export const DEVICE_FILTERS: HIDDeviceFilter[] = [
   { vendorId: 0x1c1a, productId: 0x03d9 }, // Datel PowerSaves for Amiibo
-  { vendorId: 0x5c60, productId: 0xdead }, // MaxLander / NaMiio
 ];

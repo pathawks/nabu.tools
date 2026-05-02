@@ -40,9 +40,7 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x03d9,
     transport: "webhid",
     systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
-    description:
-      "Datel NFC portal for reading and writing Amiibo (NTAG215) tags. " +
-      "Also recognizes MaxLander and NaMiio clones.",
+    description: "Datel NFC portal for reading Amiibo (NTAG215) tags.",
   },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",

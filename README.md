@@ -22,6 +22,8 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 | --- | --- | --- |
 | [GBxCart RW](https://www.gbxcart.com/) v1.4 Pro | Web Serial | Game Boy, Game Boy Color, Game Boy Advance |
 | PowerSaves for Amiibo | WebHID | Amiibo (NTAG215) |
+| Disney Infinity Base | WebHID | Disney Infinity Figures |
+| PS3 Memory Card Adaptor | WebUSB | PS1 Memory Card |
 
 This is still early. More hardware and more systems are in the works.
 

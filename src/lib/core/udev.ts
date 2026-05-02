@@ -34,10 +34,10 @@ export function formatUsbId(dev: DeviceDef): string {
   return `${v}:${p}`;
 }
 
-/** Detect a Linux-like platform (covers ChromeOS via the legacy fallback). */
+/** True on Linux, including ChromeOS (whose userAgentData reports "Chrome OS" but whose navigator.platform contains "Linux"). */
 export function isLinuxLike(): boolean {
   const ua = (
     navigator as Navigator & { userAgentData?: { platform: string } }
   ).userAgentData?.platform;
-  return /linux/i.test(ua ?? navigator.platform ?? "");
+  return /linux/i.test(`${ua ?? ""} ${navigator.platform ?? ""}`);
 }

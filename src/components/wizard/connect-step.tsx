@@ -2,8 +2,19 @@ import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DEVICES } from "@/lib/core/devices";
+import { DEVICES, type DeviceDef } from "@/lib/core/devices";
 import { DeviceInfoDialog } from "@/components/wizard/device-info-dialog";
+
+const MOCK_DEVICE: DeviceDef = {
+  id: "MOCK",
+  name: "Mock Device",
+  vendorId: null,
+  productId: null,
+  transport: "webusb",
+  systems: [{ id: "mock", name: "Mock System" }],
+  description:
+    "Simulated device for browser testing. Available via the ?mock query parameter; useful for UI development without hardware attached.",
+};
 
 interface ConnectStepProps {
   onConnect: (deviceId: string) => void;
@@ -111,9 +122,12 @@ export function ConnectStep({
                     Simulated device for testing
                   </div>
                 </div>
-                <Button size="sm" onClick={onMockConnect}>
-                  Connect
-                </Button>
+                <div className="flex items-center gap-1">
+                  <DeviceInfoDialog device={MOCK_DEVICE} />
+                  <Button size="sm" onClick={onMockConnect}>
+                    Connect
+                  </Button>
+                </div>
               </div>
             )}
           </div>
