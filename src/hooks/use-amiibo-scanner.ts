@@ -5,7 +5,6 @@ import type {
   OutputFile,
   VerificationHashes,
 } from "@/lib/types";
-import type { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { AmiiboSystemHandler } from "@/lib/systems/amiibo/amiibo-system-handler";
 import { parseAmiiboData, amiiboToCartridgeInfo } from "@/lib/systems/amiibo/amiibo-header";
 import { lookupAmiiboName } from "@/lib/systems/amiibo/amiibo-db";
@@ -76,8 +75,7 @@ export function useAmiiboScanner(
     let timer: ReturnType<typeof setTimeout>;
     failedUidRef.current = null;
 
-    const psDriver = driver as PowerSaveDriver;
-    psDriver.on("onLog", (msg, level) => log(msg, level));
+    driver.on("onLog", (msg, level) => log(msg, level));
 
     const schedule = (fn: () => Promise<void>, ms: number) => {
       timer = setTimeout(() => {
@@ -93,7 +91,7 @@ export function useAmiiboScanner(
     const pollForTag = async () => {
       if (signal.aborted) return;
 
-      const info = await psDriver.detectCartridge("amiibo");
+      const info = await driver.detectCartridge("amiibo");
       if (signal.aborted) return;
 
       if (info && info.meta?.uidHex !== failedUidRef.current) {
@@ -115,7 +113,7 @@ export function useAmiiboScanner(
     const pollForRemoval = async () => {
       if (signal.aborted) return;
 
-      const info = await psDriver.detectCartridge("amiibo");
+      const info = await driver.detectCartridge("amiibo");
       if (signal.aborted) return;
 
       if (!info) {
@@ -133,7 +131,7 @@ export function useAmiiboScanner(
       try {
         const trueUid = info.meta!.uid as Uint8Array;
         const config = system.buildReadConfig({ uid: trueUid });
-        const rawData = await psDriver.readROM(config, signal);
+        const rawData = await driver.readROM(config, signal);
         if (signal.aborted) return;
 
         if (rawData.length === 0) {
@@ -186,7 +184,7 @@ export function useAmiiboScanner(
         }
         if (signal.aborted) return;
 
-        const signature = psDriver.amiiboSignature;
+        const signature = driver.amiiboSignature ?? null;
         const signatureValid =
           signature !== null && verifyNtagSignature(parsed.uid, signature);
 

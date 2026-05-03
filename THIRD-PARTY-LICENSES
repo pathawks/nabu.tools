@@ -63,8 +63,9 @@ joycon-webhid
 https://github.com/aka256/joycon-webhid
 
 Switch Pro Controller NFC protocol implementation in
-src/lib/drivers/procon/ was informed by the joycon-webhid WebHID
-implementation.
+src/lib/drivers/procon/ (output report layout, NFC error/IC state
+dictionaries, MCU/NFC packet builders) was ported from the joycon-webhid
+WebHID implementation.
 
 License: MIT
 

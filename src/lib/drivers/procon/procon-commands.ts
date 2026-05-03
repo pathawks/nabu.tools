@@ -1,10 +1,12 @@
 /**
  * Nintendo Switch Pro Controller / Joy-Con (R) — NFC protocol constants.
  *
+ * Ported from:
+ *   github.com/aka256/joycon-webhid (MIT)
+ *
  * References:
- *   github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering
- *   github.com/aka256/joycon-webhid
- *   github.com/CTCaer/jc_toolkit
+ *   github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering (protocol notes)
+ *   github.com/CTCaer/jc_toolkit (MIT)
  */
 
 // ─── Device identifiers ────────────────────────────────────────────────

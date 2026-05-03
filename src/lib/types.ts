@@ -88,6 +88,12 @@ export interface DeviceDriver {
   readonly name: string;
   readonly transport?: Transport;
   readonly capabilities: DeviceCapability[];
+  /**
+   * NTAG21x ECC signature captured during the most recent authentication,
+   * for drivers that perform NXP signature verification. Null if no tag has
+   * been authenticated yet, or undefined for drivers that don't expose it.
+   */
+  readonly amiiboSignature?: Uint8Array | null;
   initialize(): Promise<DeviceInfo>;
   /** Auto-detect which system is inserted (GBA first at 3.3V, then DMG at 5V). */
   detectSystem(): Promise<DetectSystemResult | null>;
@@ -103,6 +109,13 @@ export interface DeviceDriver {
     event: K,
     handler: DeviceDriverEvents[K],
   ): void;
+  /**
+   * Stop background work and release driver-owned resources (timers, queued
+   * waiters, raw input listeners). Called by the connection layer before
+   * disconnecting the transport, so drivers can fail any in-flight reads
+   * cleanly. Idempotent.
+   */
+  dispose?(): void;
 }
 
 export interface DeviceInfo {

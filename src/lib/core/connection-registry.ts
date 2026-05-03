@@ -25,7 +25,7 @@ export interface ConnectionEntry {
     transport: Transport,
     ctx: { authorized: AuthorizedDevice | null },
   ): Promise<DeviceIdentity>;
-  createDriver(transport: Transport, identity: DeviceIdentity): DeviceDriver;
+  createDriver(transport: Transport): DeviceDriver;
   /** Pre-initialize log line. Default: "Initializing device..." */
   preInitLog?: string;
   /** Post-initialize log line. Default: `Connected: ${info.deviceName}` */
@@ -82,7 +82,6 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
       authorized
         ? (t as HidTransport).connectWithDevice(authorized as HIDDevice)
         : (t as HidTransport).connect(),
-    createDriver: (t, identity) =>
-      new ProConDriver(t as HidTransport, identity.raw as HIDDevice),
+    createDriver: (t) => new ProConDriver(t as HidTransport),
   },
 };

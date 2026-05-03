@@ -136,6 +136,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
   useEffect(() => {
     const cleanup = () => {
       try {
+        driverRef.current?.dispose?.();
         driverRef.current?.transport?.disconnect();
       } catch {
         // Best-effort — page is unloading
@@ -179,6 +180,13 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
   }, []);
 
   const handleDisconnect = useCallback(async () => {
+    if (driver) {
+      try {
+        driver.dispose?.();
+      } catch (e) {
+        log(`Driver dispose warning: ${(e as Error).message}`, "warn");
+      }
+    }
     if (driver?.transport?.connected) {
       try {
         await driver.transport.disconnect();
@@ -262,7 +270,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           handleDisconnect();
         });
 
-        const drv = entry.createDriver(transport, identity);
+        const drv = entry.createDriver(transport);
         drv.on("onLog", (msg, level) => log(msg, level));
 
         log(entry.preInitLog ?? "Initializing device...");

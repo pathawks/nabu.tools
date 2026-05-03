@@ -7,14 +7,16 @@ import type {
   DeviceIdentity,
 } from "@/lib/types";
 
-const REPORT_ID = 0x00;
+const DEFAULT_REPORT_ID = 0x00;
 
 export class HidTransport implements Transport {
   readonly type: TransportType = "webhid";
   private device: HIDDevice | null = null;
   private events: Partial<TransportEvents> = {};
   private responseResolve: ((data: Uint8Array) => void) | null = null;
-  private inputListener: ((data: Uint8Array) => void) | null = null;
+  private inputListener:
+    | ((data: Uint8Array, reportId: number) => void)
+    | null = null;
   private readonly filters: HIDDeviceFilter[];
 
   constructor(filters: HIDDeviceFilter[]) {
@@ -22,7 +24,9 @@ export class HidTransport implements Transport {
   }
 
   /** Register a listener for every input report, including unsolicited ones. */
-  setInputListener(listener: ((data: Uint8Array) => void) | null): void {
+  setInputListener(
+    listener: ((data: Uint8Array, reportId: number) => void) | null,
+  ): void {
     this.inputListener = listener;
   }
 
@@ -85,11 +89,21 @@ export class HidTransport implements Transport {
       this.device = null;
     }
     this.responseResolve = null;
+    this.inputListener = null;
   }
 
   async send(data: Uint8Array, _options?: TransferOptions): Promise<void> {
+    return this.sendReport(DEFAULT_REPORT_ID, data);
+  }
+
+  /**
+   * Send an HID output report with an explicit report ID. Drivers that talk
+   * to devices using non-zero report IDs (e.g. Switch Pro Controller) should
+   * use this; `send()` defaults to report ID 0.
+   */
+  async sendReport(reportId: number, data: Uint8Array): Promise<void> {
     if (!this.device) throw new Error("Not connected");
-    await this.device.sendReport(REPORT_ID, data as unknown as BufferSource);
+    await this.device.sendReport(reportId, data as unknown as BufferSource);
   }
 
   async receive(
@@ -120,9 +134,13 @@ export class HidTransport implements Transport {
   }
 
   private onInputReport = (event: Event): void => {
-    const { data } = event as unknown as HIDInputReportEvent;
-    const bytes = new Uint8Array(data.buffer);
-    this.inputListener?.(bytes);
+    const { data, reportId } = event as unknown as HIDInputReportEvent;
+    const bytes = new Uint8Array(
+      data.buffer,
+      data.byteOffset,
+      data.byteLength,
+    );
+    this.inputListener?.(bytes, reportId);
     if (this.responseResolve) {
       const resolve = this.responseResolve;
       this.responseResolve = null;
