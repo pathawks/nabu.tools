@@ -35,12 +35,15 @@ export function useDumpJob(
     });
   }, []);
 
-  useEffect(
-    () => () => {
-      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
-    },
-    [],
-  );
+  const cancelPendingProgress = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    pendingProgressRef.current = null;
+  }, []);
+
+  useEffect(() => () => cancelPendingProgress(), [cancelPendingProgress]);
 
   const run = useCallback(
     async (
@@ -53,10 +56,10 @@ export function useDumpJob(
       const abort = new AbortController();
       abortRef.current = abort;
 
+      cancelPendingProgress();
       setResult(null);
       setError(null);
       setProgress(null);
-      pendingProgressRef.current = null;
 
       job.on("onStateChange", setState);
       job.on("onProgress", setProgressThrottled);
@@ -75,7 +78,7 @@ export function useDumpJob(
         abortRef.current = null;
       }
     },
-    [log, setProgressThrottled],
+    [log, setProgressThrottled, cancelPendingProgress],
   );
 
   const abort = useCallback(() => {
@@ -85,11 +88,12 @@ export function useDumpJob(
   }, [log]);
 
   const reset = useCallback(() => {
+    cancelPendingProgress();
     setState("idle");
     setProgress(null);
     setResult(null);
     setError(null);
-  }, []);
+  }, [cancelPendingProgress]);
 
   return { state, progress, result, error, run, abort, reset };
 }
