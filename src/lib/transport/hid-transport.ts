@@ -30,6 +30,21 @@ export class HidTransport implements Transport {
     this.inputListener = listener;
   }
 
+  /**
+   * True if the connected device's HID descriptor advertises an input
+   * report with the given ID. Drivers that depend on a specific report
+   * (e.g. Pro Controller's MCU report 0x31) can use this to fail fast
+   * with an actionable error instead of timing out waiting for data
+   * the OS HID stack will never deliver.
+   */
+  supportsInputReport(reportId: number): boolean {
+    return (
+      this.device?.collections.some((c) =>
+        c.inputReports?.some((r) => r.reportId === reportId),
+      ) ?? false
+    );
+  }
+
   get connected(): boolean {
     return this.device !== null && this.device.opened;
   }

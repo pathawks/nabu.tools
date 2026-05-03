@@ -11,8 +11,11 @@
 
 // ─── Device identifiers ────────────────────────────────────────────────
 
-export const DEVICE_FILTERS: HIDDeviceFilter[] = [
+export const PROCON_FILTERS: HIDDeviceFilter[] = [
   { vendorId: 0x057e, productId: 0x2009 }, // Pro Controller
+];
+
+export const JOYCON_R_FILTERS: HIDDeviceFilter[] = [
   { vendorId: 0x057e, productId: 0x2007 }, // Joy-Con (R)
 ];
 

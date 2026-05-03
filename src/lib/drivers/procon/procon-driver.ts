@@ -102,6 +102,19 @@ export class ProConDriver implements DeviceDriver {
   // ─── DeviceDriver interface ──────────────────────────────────────────
 
   async initialize(): Promise<DeviceInfo> {
+    // Fail fast if the OS HID stack doesn't expose MCU input report 0x31.
+    // On Linux, the kernel's hid-nintendo driver consumes the controller
+    // and re-publishes a stripped HID descriptor that omits 0x31, so we
+    // would otherwise wait the full MCU_TIMEOUT_MS for input that will
+    // never arrive.
+    if (!this.transport.supportsInputReport(INPUT.MCU_DATA)) {
+      throw new Error(
+        "Pro Controller MCU input report 0x31 is not exposed by the OS HID stack. " +
+          "On Linux this is the known hid-nintendo limitation — NFC reading " +
+          "requires macOS, Windows, or a hid-nintendo BPF descriptor patch.",
+      );
+    }
+
     // USB handshake — required for USB-connected controllers.
     // Steps: get status -> UART handshake -> switch to 3 Mbps baud ->
     //        re-handshake at new baud -> force USB-only mode.
