@@ -246,29 +246,45 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
           ? "Connecting..."
           : `Requesting ${transportLabel}...`,
       );
-      const identity = await entry.connect(transport, { authorized });
 
-      if (driverRef.current) {
+      try {
+        const identity = await entry.connect(transport, { authorized });
+
+        if (driverRef.current) {
+          await transport.disconnect().catch(() => {});
+          return false;
+        }
+
+        log(`Opened ${transportLabel}: ${identity.name}`);
+
+        transport.on("onDisconnect", () => {
+          log("Device disconnected", "warn");
+          handleDisconnect();
+        });
+
+        const drv = entry.createDriver(transport);
+        drv.on("onLog", (msg, level) => log(msg, level));
+
+        log(entry.preInitLog ?? "Initializing device...");
+        const info = await drv.initialize();
+
+        // Final race check — another path may have published its driver
+        // while we were awaiting initialize().
+        if (driverRef.current) {
+          await transport.disconnect().catch(() => {});
+          return false;
+        }
+
+        log(entry.postInitLog?.(info) ?? `Connected: ${info.deviceName}`);
+        finishConnect(drv, info, deviceId);
+        return true;
+      } catch (e) {
+        // entry.connect or drv.initialize threw — close the transport so we
+        // don't leak an open serial port / claimed USB interface / opened
+        // HID device, then propagate.
         await transport.disconnect().catch(() => {});
-        return false;
+        throw e;
       }
-
-      log(`Opened ${transportLabel}: ${identity.name}`);
-
-      transport.on("onDisconnect", () => {
-        log("Device disconnected", "warn");
-        handleDisconnect();
-      });
-
-      const drv = entry.createDriver(transport);
-      drv.on("onLog", (msg, level) => log(msg, level));
-
-      log(entry.preInitLog ?? "Initializing device...");
-      const info = await drv.initialize();
-      log(entry.postInitLog?.(info) ?? `Connected: ${info.deviceName}`);
-
-      finishConnect(drv, info, deviceId);
-      return true;
     },
     [log, handleDisconnect, finishConnect],
   );

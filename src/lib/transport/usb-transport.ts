@@ -70,7 +70,12 @@ export class UsbTransport implements Transport {
     if (device.configuration?.configurationValue !== 1) {
       await device.selectConfiguration(1);
     }
-    if (!device.configuration?.interfaces[0]?.claimed) {
+    // configuration.interfaces[] is not guaranteed to be ordered by
+    // interfaceNumber, so look up by number rather than array index.
+    const iface = device.configuration?.interfaces.find(
+      (i) => i.interfaceNumber === 0,
+    );
+    if (!iface?.claimed) {
       await device.claimInterface(0);
     }
 
