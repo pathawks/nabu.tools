@@ -59,9 +59,14 @@ export const SPI_CMD = {
  * Decode FLASH capacity byte (third byte of JEDEC response) to size in bytes.
  * Common NDS save-FLASH chips:
  *   0x13 = 512 KB   0x14 = 1 MB   0x15 = 2 MB   0x16 = 4 MB
+ *
+ * The upper bound is 0x18 (16 MB): real DS save-FLASH tops out around 8 MB
+ * (M25P80), 0x18 leaves headroom, and we'd hit signed-shift overflow above
+ * 0x1E. Capacity bytes outside this range trip the "report this cart"
+ * error in the caller rather than silently returning a negative size.
  */
 export function flashSizeFromJedec(capacityByte: number): number | null {
-  if (capacityByte < 0x10 || capacityByte > 0x1f) return null;
+  if (capacityByte < 0x10 || capacityByte > 0x18) return null;
   return 1 << capacityByte;
 }
 

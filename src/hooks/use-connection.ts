@@ -179,9 +179,14 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
   }, []);
 
   const handleDisconnect = useCallback(async () => {
-    if (driver?.transport?.connected) {
+    // Read via ref, not closure: transport.on("onDisconnect", …) is registered
+    // inside connectDevice BEFORE finishConnect publishes the driver, so a
+    // device-initiated disconnect callback would otherwise see the stale
+    // driver === null from the closure and skip dispose().
+    const drv = driverRef.current;
+    if (drv?.transport?.connected) {
       try {
-        await driver.transport.disconnect();
+        await drv.transport.disconnect();
       } catch (e) {
         const msg = (e as Error).message;
         if (!msg.includes("closed")) {
@@ -189,7 +194,8 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
         }
       }
     }
-    driver?.dispose?.();
+    drv?.dispose?.();
+    driverRef.current = null;
     setDriver(null);
     setDeviceInfo(null);
     setConnected(false);
@@ -197,7 +203,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
     log("Disconnected");
     // Re-probe so the connect screen shows current availability
     probeAvailableDevices().then(setAvailableDevices);
-  }, [driver, log]);
+  }, [log]);
 
   /** Shared post-connect: set state and notify caller. */
   const finishConnect = useCallback(

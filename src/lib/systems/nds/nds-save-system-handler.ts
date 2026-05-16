@@ -26,7 +26,7 @@ import { crc32, sha1Hex, sha256Hex, formatBytes } from "@/lib/core/hashing";
  */
 const STANDARD_NDS_SAVE_SIZES = {
   EEPROM: [
-    256,       // 0.5 KB / 4 Kbit "tiny" EEPROM (1-byte address)
+    256,       // 0.25 KB / 2 Kbit "tiny" EEPROM (1-byte address)
     512,       // 4 Kbit EEPROM
     8192,      // 64 Kbit EEPROM
     65536,     // 512 Kbit EEPROM
@@ -123,10 +123,13 @@ export class NDSSaveSystemHandler implements SystemHandler {
   buildOutputFile(rawData: Uint8Array, config: ReadConfig): OutputFile {
     const title = config.params.title as string | undefined;
     const gameCode = config.params.gameCode as string | undefined;
-    const basename = (title ?? gameCode ?? "nds_save")
+    // Fall back AFTER sanitization too: a title that's entirely punctuation
+    // or non-ASCII would otherwise sanitize to "" and we'd write ".sav".
+    const sanitized = (title ?? gameCode ?? "")
       .replace(/[^a-zA-Z0-9_ -]/g, "")
       .trim()
       .replace(/\s+/g, "_");
+    const basename = sanitized || "nds_save";
 
     return {
       data: rawData,

@@ -65,6 +65,12 @@ export interface CardHeader {
   romSizeMiB: number;
   /** All three CRC signals matched and gameCode is alphanumeric. */
   validHeader: boolean;
+  /**
+   * Header CRC-16 at 0x15E, set only when `validHeader` is true. Suitable
+   * as a per-cart identity for swap-detection — far more discriminating
+   * than the NTR chip-ID, which only identifies the ROM silicon/density.
+   */
+  headerCrc?: number;
   /** The input buffer was all 0xFF — the cart is a 3DS cart, not an NDS cart. */
   headerAllFF: boolean;
   raw: Uint8Array;
@@ -183,11 +189,12 @@ export function parseNDSHeader(
   const makerCode = makerCodes[makerRaw] ?? makerRaw;
   const romVersion = hdr[0x1e];
   const capacity = hdr[0x14];
-  const romSizeMiB = capacity > 3 ? 1 << (capacity - 3) : 0;
+  const romSizeMiB = capacity >= 3 ? 1 << (capacity - 3) : 0;
   const regionChar = gameCode[3] ?? "";
   const region = NDS_REGIONS[regionChar] ?? regionChar;
 
   let validHeader = false;
+  let headerCrc: number | undefined;
   if (hdr.length >= 0x160 && /^[A-Z0-9]{4}$/.test(gameCode)) {
     const storedHeaderCrc = hdr[0x15e] | (hdr[0x15f] << 8);
     const computedHeaderCrc = crc16Modbus(hdr.subarray(0, 0x15e));
@@ -197,6 +204,7 @@ export function parseNDSHeader(
       storedHeaderCrc === computedHeaderCrc &&
       storedLogoCrc === computedLogoCrc &&
       computedLogoCrc === BOOT_LOGO_CRC;
+    if (validHeader) headerCrc = storedHeaderCrc;
   }
 
   return {
@@ -207,6 +215,7 @@ export function parseNDSHeader(
     romVersion,
     romSizeMiB,
     validHeader,
+    headerCrc,
     headerAllFF: false,
     raw,
   };

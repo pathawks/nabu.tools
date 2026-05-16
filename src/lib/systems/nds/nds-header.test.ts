@@ -84,6 +84,32 @@ describe("parseNDSHeader", () => {
     expect(parsed.headerAllFF).toBe(false);
   });
 
+  it("exposes the stored header CRC for use as a cart-identity field", () => {
+    const buf = makeHeader();
+    const parsed = parseNDSHeader(buf, {});
+    const expected = buf[0x15e] | (buf[0x15f] << 8);
+    expect(parsed.headerCrc).toBe(expected);
+  });
+
+  it("leaves headerCrc undefined when the header fails validation", () => {
+    const buf = makeHeader();
+    buf[0x15e] ^= 0xff; // corrupt header CRC
+    const parsed = parseNDSHeader(buf, {});
+    expect(parsed.validHeader).toBe(false);
+    expect(parsed.headerCrc).toBeUndefined();
+  });
+
+  it("reports 1 MiB ROM size for capacity byte 0x03 (formula boundary)", () => {
+    const buf = makeHeader();
+    buf[0x14] = 0x03;
+    const headerCrc = crc16Modbus(buf.subarray(0, 0x15e));
+    buf[0x15e] = headerCrc & 0xff;
+    buf[0x15f] = (headerCrc >>> 8) & 0xff;
+    const parsed = parseNDSHeader(buf, {});
+    expect(parsed.validHeader).toBe(true);
+    expect(parsed.romSizeMiB).toBe(1);
+  });
+
   it("falls back to the raw maker code when the lookup misses", () => {
     const buf = makeHeader();
     const parsed = parseNDSHeader(buf, {});

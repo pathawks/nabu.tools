@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import { useNDSScanner } from "@/hooks/use-nds-scanner";
 import { formatBytes } from "@/lib/core/hashing";
 import { saveFile } from "@/lib/core/file-save";
@@ -114,12 +115,7 @@ export function NDSScanner({
                     </span>
                   )}
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-chart-3 transition-all duration-150"
-                    style={{ width: `${(progress?.fraction ?? 0) * 100}%` }}
-                  />
-                </div>
+                <Progress value={(progress?.fraction ?? 0) * 100} />
               </div>
             )}
 

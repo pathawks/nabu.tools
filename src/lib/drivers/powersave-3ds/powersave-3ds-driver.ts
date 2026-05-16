@@ -203,6 +203,7 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
       this.header = null;
       this.headerChipId = "";
       this.saveSize = 0;
+      this.saveTypeName = undefined;
       return null;
     }
 
@@ -236,6 +237,7 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
       this.header = parsed;
       this.headerChipId = chipIdHex;
       this.saveSize = 0;
+      this.saveTypeName = undefined;
     }
 
     return this.buildCartInfo();
@@ -370,32 +372,70 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
 
   /**
    * Abort the dump if the currently-inserted cart isn't the one the scanner
-   * cached. Compares a fresh NTR GET_CHIP_ID against the chip ID captured
-   * at detect time. Without this, a cart swapped between scan and dump
-   * would be dumped under the old cart's title and hashed against the
-   * wrong No-Intro entry.
+   * cached. Without this, a cart swapped between scan and dump would be
+   * dumped under the old cart's title and hashed against the wrong No-Intro
+   * entry.
+   *
+   * Two-stage check: chip-ID first (cheap), then a fresh header re-read for
+   * a CRC compare when the cached cart had a valid header. The chip ID
+   * alone isn't unique — it encodes ROM silicon/density only, so two
+   * different titles on the same chip type would pass — but it's a fast
+   * early-out for the common case of a different chip family being swapped
+   * in.
    */
   private async verifyCartUnchanged(): Promise<void> {
-    const cached = this.headerChipId;
-    if (!cached) return;
+    const cachedChipId = this.headerChipId;
+    if (!cachedChipId) return;
 
     await this.ensureRomInit();
     const ntr = new Uint8Array(8);
     ntr[0] = NTR_CMD.GET_CHIP_ID;
     const id = await this.sendCommand(CMD.NTR, ntr, 4);
-    const fresh = Array.from(id, hex).join("");
-
-    if (fresh === cached) return;
 
     if (id.every((b) => b === 0x00) || id.every((b) => b === 0xff)) {
       throw new Error(
         "Cartridge removed since scan — re-insert and re-scan before dumping.",
       );
     }
-    throw new Error(
-      `Cartridge changed since scan (chip ID ${cached} → ${fresh}). ` +
-        "Re-scan the new cart before dumping.",
-    );
+
+    const freshChipId = Array.from(id, hex).join("");
+    if (freshChipId !== cachedChipId) {
+      throw new Error(
+        `Cartridge changed since scan (chip ID ${cachedChipId} → ${freshChipId}). ` +
+          "Re-scan the new cart before dumping.",
+      );
+    }
+
+    const cachedHeaderCrc = this.header?.headerCrc;
+    if (cachedHeaderCrc === undefined) return;
+
+    // Re-read the header and compare its CRC against the cached value.
+    // Retry transient bad reads — a single failure here doesn't yet mean
+    // the cart changed; it can also be a bus glitch right after the
+    // SPI→ROM mode switch. Three attempts mirrors detectCartridge.
+    let freshHeaderCrc: number | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const headerBytes = await this.sendCommand(
+        CMD.NTR,
+        new Uint8Array(8),
+        0x200,
+      );
+      const parsed = parseHeader(headerBytes);
+      if (parsed.validHeader) {
+        freshHeaderCrc = parsed.headerCrc;
+        break;
+      }
+      this.currentMode = null;
+      this.romInited = false;
+      await this.ensureRomInit();
+    }
+
+    if (freshHeaderCrc !== cachedHeaderCrc) {
+      throw new Error(
+        "Cartridge changed since scan (header CRC mismatch). " +
+          "Re-scan the new cart before dumping.",
+      );
+    }
   }
 
   // ─── Protocol helpers ───────────────────────────────────────────────────
