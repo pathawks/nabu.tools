@@ -52,7 +52,13 @@ export interface DeviceIdentity {
 
 // ─── Device Driver ──────────────────────────────────────────────────────────
 
-export type SystemId = "gb" | "gbc" | "gba" | "amiibo" | string;
+export type SystemId =
+  | "gb"
+  | "gbc"
+  | "gba"
+  | "amiibo"
+  | "nds_save"
+  | string;
 
 export interface DeviceCapability {
   systemId: SystemId;
@@ -103,6 +109,8 @@ export interface DeviceDriver {
     event: K,
     handler: DeviceDriverEvents[K],
   ): void;
+  /** Release any resources held by the driver (event listeners, buffers). */
+  dispose?(): void;
 }
 
 export interface DeviceInfo {
@@ -141,14 +149,14 @@ export interface DumpProgress {
 
 // ─── System Handler ─────────────────────────────────────────────────────────
 
-export interface CartridgeInfo {
+export interface CartridgeInfo<M = Record<string, unknown>> {
   title?: string;
   mapper?: MapperInfo;
   romSize?: number;
   saveSize?: number;
   saveType?: string;
   rawHeader?: Uint8Array;
-  meta?: Record<string, unknown>;
+  meta?: M;
 }
 
 export interface MapperInfo {

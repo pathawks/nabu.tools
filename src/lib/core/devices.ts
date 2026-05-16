@@ -42,6 +42,17 @@ export const DEVICES: Record<string, DeviceDef> = {
     systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
     description: "Datel NFC portal for reading Amiibo (NTAG215) tags.",
   },
+  POWERSAVE_3DS: {
+    id: "POWERSAVE_3DS",
+    name: "PowerSaves for 3DS",
+    vendorId: 0x1c1a,
+    productId: 0x03d5,
+    transport: "webhid",
+    systems: [{ id: "nds_save", name: "DS (Saves Only)" }],
+    description:
+      "Datel cartridge adapter. Despite the 3DS branding, it backs up " +
+      "DS cartridge saves only — 3DS cartridges are not accessible.",
+  },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
     name: "Disney Infinity Base",

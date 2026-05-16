@@ -4,6 +4,8 @@ import { UsbTransport } from "@/lib/transport/usb-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
+import { PowerSave3DSDriver } from "@/lib/drivers/powersave-3ds/powersave-3ds-driver";
+import { DEVICE_FILTERS as POWERSAVE_3DS_FILTERS } from "@/lib/drivers/powersave-3ds/powersave-3ds-commands";
 import { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
 import { DEVICE_FILTERS as INFINITY_FILTERS } from "@/lib/drivers/infinity/infinity-commands";
 import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
@@ -51,6 +53,15 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
         ? (t as HidTransport).connectWithDevice(authorized as HIDDevice)
         : (t as HidTransport).connect(),
     createDriver: (t) => new PowerSaveDriver(t as HidTransport),
+  },
+
+  POWERSAVE_3DS: {
+    createTransport: () => new HidTransport(POWERSAVE_3DS_FILTERS),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as HidTransport).connectWithDevice(authorized as HIDDevice)
+        : (t as HidTransport).connect(),
+    createDriver: (t) => new PowerSave3DSDriver(t as HidTransport),
   },
 
   DISNEY_INFINITY: {

@@ -189,6 +189,7 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
         }
       }
     }
+    driver?.dispose?.();
     setDriver(null);
     setDeviceInfo(null);
     setConnected(false);

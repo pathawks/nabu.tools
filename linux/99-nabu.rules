@@ -11,6 +11,8 @@
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", TAG+="uaccess", MODE="0660"
 # POWERSAVE — PowerSaves for Amiibo
 KERNEL=="hidraw*", ATTRS{idVendor}=="1c1a", ATTRS{idProduct}=="03d9", TAG+="uaccess", MODE="0660"
+# POWERSAVE_3DS — PowerSaves for 3DS
+KERNEL=="hidraw*", ATTRS{idVendor}=="1c1a", ATTRS{idProduct}=="03d5", TAG+="uaccess", MODE="0660"
 # DISNEY_INFINITY — Disney Infinity Base
 KERNEL=="hidraw*", ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0129", TAG+="uaccess", MODE="0660"
 # PS3_MCA — PS3 Memory Card Adaptor
