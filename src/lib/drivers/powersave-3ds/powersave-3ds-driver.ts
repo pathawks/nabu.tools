@@ -58,11 +58,13 @@ import {
   PACKET_SIZE,
   COMMAND_TIMEOUT_MS,
   flashSizeFromJedec,
+  isIrModuleJedecSignature,
 } from "./powersave-3ds-commands";
 import { MAKER_CODES } from "@/lib/systems/nds/nds-maker-codes";
 import {
   parseNDSHeader,
   buildNDSCartInfoFromHeader,
+  UnsupportedCartError,
   type CardHeader,
   type NDSCartridgeInfo,
   type NDSDeviceDriver,
@@ -227,7 +229,9 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
         parsed = parseHeader(headerBytes);
         if (parsed.validHeader) break;
         this.log(
-          `Header CRC mismatch on attempt ${attempt + 1}; cycling ROM mode and retrying.`,
+          `Header CRC mismatch on attempt ${attempt + 1} ` +
+            `(bytes 0..1F: ${hexAscii(headerBytes, 32)}); ` +
+            `cycling ROM mode and retrying.`,
           "warn",
         );
         this.currentMode = null;
@@ -425,6 +429,12 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
         freshHeaderCrc = parsed.headerCrc;
         break;
       }
+      this.log(
+        `Re-verify header CRC mismatch on attempt ${attempt + 1} ` +
+          `(bytes 0..1F: ${hexAscii(headerBytes, 32)}); ` +
+          `cycling ROM mode and retrying.`,
+        "warn",
+      );
       this.currentMode = null;
       this.romInited = false;
       await this.ensureRomInit();
@@ -527,6 +537,24 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
       3,
     );
     const jedecHex = Array.from(jedecResp, hex).join(" ");
+
+    // A handful of DS carts put the save chip on CS2 behind an IR
+    // module on CS1. The PowerSaves firmware can only drive CS1, so the
+    // JEDEC probe lands on the IR module and returns `00 7F ..` instead
+    // of a real save-chip ID. There's no firmware workaround (confirmed
+    // by full Ghidra RE — the firmware has no CS2-select opcode);
+    // surface the limitation up to the wizard so the cart card stays
+    // visible and the user is told to try a different adapter.
+    if (isIrModuleJedecSignature(jedecResp)) {
+      this.log(`Save chip JEDEC ID: ${jedecHex} (IR module on CS1)`, "warn");
+      throw new UnsupportedCartError(
+        "This cart's save chip is behind an IR module that the " +
+          "PowerSaves for 3DS firmware cannot bypass — save dumping " +
+          "with this device is not possible. Use a different DS-cart " +
+          "adapter (EMS NDS Adapter, Neoflash SMS4) to back up this " +
+          "cart's save.",
+      );
+    }
 
     if (jedecResp.some((b) => b !== 0x00 && b !== 0xff)) {
       const flashSize = flashSizeFromJedec(jedecResp[2]);
@@ -731,6 +759,22 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
 
 function hex(b: number): string {
   return b.toString(16).padStart(2, "0");
+}
+
+/**
+ * Format the first `n` bytes as `hh hh hh … | ascii` for log readability —
+ * lets a human see at a glance whether a failed header read returned
+ * plausible bytes (real cart title visible in the ASCII column),
+ * uniform garbage (all 0x00 / 0xFF — dead bus), or scrambled data (e.g.
+ * counterfeit cart shipping encrypted bytes on the unencrypted path).
+ */
+function hexAscii(bytes: Uint8Array, n: number): string {
+  const slice = bytes.subarray(0, n);
+  const hexStr = Array.from(slice, hex).join(" ");
+  const asciiStr = Array.from(slice, (b) =>
+    b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".",
+  ).join("");
+  return `${hexStr} | ${asciiStr}`;
 }
 
 /**

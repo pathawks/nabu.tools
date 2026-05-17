@@ -5,9 +5,10 @@ import type {
   VerificationHashes,
   VerificationDB,
 } from "@/lib/types";
-import type {
-  NDSCartridgeInfo,
-  NDSDeviceDriver,
+import {
+  UnsupportedCartError,
+  type NDSCartridgeInfo,
+  type NDSDeviceDriver,
 } from "@/lib/systems/nds/nds-header";
 import { NDSSaveSystemHandler } from "@/lib/systems/nds/nds-save-system-handler";
 
@@ -39,6 +40,11 @@ export function useNDSScanner(
   const [phase, setPhase] = useState<NDSScannerPhase>("idle");
   const [result, setResult] = useState<NDSScannerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True when the failure is a transient protocol / hardware glitch that
+  // an unplug-and-reconnect might clear; false for hard limitations of
+  // the device against the inserted cart (e.g. PowerSaves vs IR carts)
+  // where reconnecting will produce the exact same error.
+  const [errorRecoverable, setErrorRecoverable] = useState(true);
   const [progress, setProgress] = useState<DumpProgress | null>(null);
   const [cartInfo, setCartInfo] = useState<NDSCartridgeInfo | null>(null);
 
@@ -49,6 +55,7 @@ export function useNDSScanner(
     setPhase(driver ? "polling" : "idle");
     setResult(null);
     setError(null);
+    setErrorRecoverable(true);
     setCartInfo(null);
   }
 
@@ -162,6 +169,7 @@ export function useNDSScanner(
         const msg = (e as Error).message;
         log(`Read error: ${msg}`, "error");
         setError(msg);
+        setErrorRecoverable(!(e instanceof UnsupportedCartError));
         setPhase("error");
         // Do not auto-retry — require the user to reconnect the device.
       }
@@ -178,5 +186,5 @@ export function useNDSScanner(
     };
   }, [driver, system, log]);
 
-  return { phase, result, error, progress, cartInfo };
+  return { phase, result, error, errorRecoverable, progress, cartInfo };
 }

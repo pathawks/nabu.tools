@@ -27,11 +27,8 @@ export function NDSScanner({
   log,
   nointroDb = null,
 }: NDSScannerProps) {
-  const { phase, result, error, progress, cartInfo } = useNDSScanner(
-    driver,
-    log,
-    nointroDb,
-  );
+  const { phase, result, error, errorRecoverable, progress, cartInfo } =
+    useNDSScanner(driver, log, nointroDb);
 
   const handleDownload = useCallback(() => {
     if (!result) return;
@@ -39,8 +36,14 @@ export function NDSScanner({
   }, [result]);
 
   const activeInfo = result?.cartInfo ?? cartInfo;
+  // Keep the cart panel visible on "error" too: the failure can come from
+  // the SPI save chip *after* a successful header read (e.g. IR-equipped
+  // carts whose save chip sits on a CS line this device can't reach),
+  // and the user wants to see what the scanner identified even when the
+  // dump itself didn't complete.
   const showCartCard =
-    (phase === "reading" || phase === "done") && activeInfo;
+    (phase === "reading" || phase === "done" || phase === "error") &&
+    activeInfo;
 
   return (
     <div className="flex flex-col gap-6">
@@ -66,9 +69,13 @@ export function NDSScanner({
         <Alert variant="destructive">
           <AlertDescription>
             {error}
-            <br />
-            Unplug the adapter from USB, wait 3 seconds, plug it back in, and
-            reconnect to try again.
+            {errorRecoverable && (
+              <>
+                <br />
+                Unplug the adapter from USB, wait 3 seconds, plug it back in,
+                and reconnect to try again.
+              </>
+            )}
           </AlertDescription>
         </Alert>
       )}

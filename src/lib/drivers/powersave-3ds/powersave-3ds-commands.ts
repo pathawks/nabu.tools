@@ -70,6 +70,28 @@ export function flashSizeFromJedec(capacityByte: number): number | null {
   return 1 << capacityByte;
 }
 
+/**
+ * A handful of DS carts carry both the save chip and an infrared
+ * transceiver on the SPI bus, selected by separate chip-select lines.
+ * The PowerSaves 3DS firmware can only drive CS1; on these carts CS1
+ * lands on the IR module instead of the save chip, so a JEDEC-ID probe
+ * gets back the IR module's response rather than a real SPI-FLASH ID.
+ *
+ * Observed responses across sessions:  00 7F 00, 00 7F E0, 00 7F FF
+ * (the third byte appears to be whatever the IR receive buffer last
+ * held). Real JEDEC manufacturer codes start at 0x01, and real DS save
+ * chips return either all-zero (EEPROM, doesn't implement JEDEC) or a
+ * valid manufacturer ID — never the `00 7F …` signature. So the first
+ * two bytes alone are sufficient to identify this case unambiguously.
+ *
+ * This is a hard limitation of the PowerSaves firmware (no CS2-select
+ * opcode); it cannot be worked around. Other DS-cart adapters that
+ * expose both chip-select lines can dump these carts normally.
+ */
+export function isIrModuleJedecSignature(jedec: Uint8Array): boolean {
+  return jedec.length >= 2 && jedec[0] === 0x00 && jedec[1] === 0x7f;
+}
+
 export const DEVICE_FILTERS: HIDDeviceFilter[] = [
   { vendorId: 0x1c1a, productId: 0x03d5 }, // Datel PowerSaves for 3DS
 ];

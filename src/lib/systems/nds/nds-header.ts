@@ -36,8 +36,19 @@ const NDS_REGIONS: Record<string, string> = {
   J: "Japan",
   E: "USA",
   P: "Europe",
+  // 'O' is the combined USA + Europe release code — a single ROM that
+  // ships on carts sold in both regions. Verified against the
+  // 2026-04-22 No-Intro DS DAT (4 titles, all labelled "(USA, Europe)").
+  O: "USA, Europe",
   K: "Korea",
   U: "Australia",
+  // 'Z' has no consistent geographic meaning — across the 2026-04-22
+  // No-Intro DS DAT it appears on Nordic / Iberian / Netherlands Europe
+  // sub-releases, US retailer exclusives (Walmart, Toys'R'Us, Target),
+  // and one Canadian SKU. Labelled "Other" rather than mislabelled as
+  // a specific region; the game code is shown alongside so the user
+  // still has the unambiguous identifier.
+  Z: "Other",
   C: "China",
   D: "Germany",
   F: "France",
@@ -336,4 +347,19 @@ export function buildNDSCartInfoFromHeader(opts: {
 export interface NDSDeviceDriver extends DeviceDriver {
   readonly cartInfo: NDSCartridgeInfo | null;
   detectCartridge(systemId: SystemId): Promise<NDSCartridgeInfo | null>;
+}
+
+/**
+ * Thrown when the connected device cannot dump a particular cart, even
+ * though the cart itself is fine and would dump on a different adapter.
+ * The scanner UI checks for this via `instanceof` to suppress the
+ * generic "unplug and retry" recovery hint — that advice doesn't apply
+ * here; reconnecting won't make the firmware sprout the missing
+ * capability.
+ */
+export class UnsupportedCartError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedCartError";
+  }
 }
