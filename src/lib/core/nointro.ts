@@ -187,6 +187,25 @@ export const NOINTRO_SYSTEM_NAMES: Readonly<Record<string, readonly string[]>> =
     nds_save: ["Nintendo - Nintendo DS", "DS"],
   };
 
+/**
+ * Match a stored DAT's system-name against one of our short candidate
+ * aliases. Accepts the candidate exactly OR followed by a parenthesised
+ * suffix (the No-Intro convention for variants — "(Encrypted)",
+ * "(Decrypted)", "(Rev 1)", etc).
+ *
+ * Substring matching would be wrong: a "Nintendo - Nintendo DS" alias
+ * would otherwise pick up the "Nintendo - Nintendo DSi" DAT, and a
+ * "Game Boy" alias would pick up "Game Boy Color" / "Game Boy
+ * Advance". Anchoring on " (" as the suffix delimiter keeps the
+ * Encrypted/Decrypted variants matchable without those false hits.
+ */
+export function matchesSystemName(
+  datName: string,
+  candidate: string,
+): boolean {
+  return datName === candidate || datName.startsWith(candidate + " (");
+}
+
 // ─── IndexedDB persistence ──────────────────────────────────────────────
 
 const DB_NAME = "nabu-nointro";

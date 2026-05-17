@@ -5,6 +5,7 @@ import {
   saveDat,
   loadAllDats,
   buildVerificationDb,
+  matchesSystemName,
   NOINTRO_SYSTEM_NAMES,
 } from "@/lib/core/nointro";
 
@@ -62,7 +63,7 @@ export function useNoIntro() {
       const candidates = NOINTRO_SYSTEM_NAMES[systemId] ?? [systemId];
       for (const candidate of candidates) {
         for (const [key, db] of dbs) {
-          if (key.includes(candidate)) return db;
+          if (matchesSystemName(key, candidate)) return db;
         }
       }
       return null;

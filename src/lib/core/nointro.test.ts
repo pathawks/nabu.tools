@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   NoIntroVerificationDB,
+  matchesSystemName,
   type NoIntroDat,
   type NoIntroEntry,
 } from "./nointro";
@@ -69,5 +70,51 @@ describe("NoIntroVerificationDB.lookupBySerial", () => {
   it("returns whatever exists when only prerelease entries match", () => {
     const beta = entry("Game (USA) (Beta)", "ABCE");
     expect(db(beta).lookupBySerial("ABCE")?.name).toBe("Game (USA) (Beta)");
+  });
+});
+
+describe("matchesSystemName", () => {
+  it("matches the canonical name exactly", () => {
+    expect(matchesSystemName("Nintendo - Nintendo DS", "Nintendo - Nintendo DS"))
+      .toBe(true);
+  });
+
+  it("matches a parenthesised variant of the canonical name", () => {
+    expect(
+      matchesSystemName(
+        "Nintendo - Nintendo DS (Encrypted)",
+        "Nintendo - Nintendo DS",
+      ),
+    ).toBe(true);
+    expect(
+      matchesSystemName(
+        "Nintendo - Nintendo DS (Decrypted)",
+        "Nintendo - Nintendo DS",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a different system whose name happens to share a prefix", () => {
+    // "DSi" — same vendor prefix, different system.
+    expect(
+      matchesSystemName(
+        "Nintendo - Nintendo DSi",
+        "Nintendo - Nintendo DS",
+      ),
+    ).toBe(false);
+    // "3DS" against the bare "DS" alias — the original bug.
+    expect(matchesSystemName("Nintendo - Nintendo 3DS", "DS")).toBe(false);
+    // "Game Boy Color" against the bare "Game Boy" alias.
+    expect(matchesSystemName("Nintendo - Game Boy Color", "Game Boy"))
+      .toBe(false);
+  });
+
+  it("rejects a name that contains the candidate as an internal substring", () => {
+    expect(matchesSystemName("Some - Other DS Console", "DS")).toBe(false);
+  });
+
+  it("does NOT match a continuation without the paren boundary", () => {
+    // "Game Boy Color" does not start with "Game Boy ("; rejected.
+    expect(matchesSystemName("Game Boy Color", "Game Boy")).toBe(false);
   });
 });
