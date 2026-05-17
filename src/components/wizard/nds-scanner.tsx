@@ -80,14 +80,24 @@ export function NDSScanner({
         </Alert>
       )}
 
-      {/* Polling state */}
-      {(phase === "polling" || phase === "idle") && (
+      {/* Detecting state — brief, while the one-shot detect is in flight. */}
+      {(phase === "detecting" || phase === "idle") && (
         <Card>
           <CardContent className="flex items-center gap-3 py-8">
             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-sm text-muted-foreground">
-              Insert a DS cartridge...
+              Detecting cartridge...
             </span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No-cart terminal state — detect ran and found nothing. */}
+      {phase === "no-cart" && (
+        <Card>
+          <CardContent className="py-8 text-sm text-muted-foreground">
+            No DS cartridge detected. Disconnect the adapter from USB, insert
+            a cart, and reconnect.
           </CardContent>
         </Card>
       )}

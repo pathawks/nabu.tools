@@ -247,12 +247,20 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
     return this.buildCartInfo();
   }
 
+  async readROM(): Promise<Uint8Array> {
+    throw new Error(
+      "PowerSaves 3DS: ROM dump is not supported — this device backs up " +
+        "DS cartridge saves only.",
+    );
+  }
+
   /**
    * Read cart header (NTR) + identify save chip (SPI) + dump save data.
-   * The save data is returned as the primary output: this is a save-only
-   * device, so readROM surfaces the save bytes directly.
    */
-  async readROM(config: ReadConfig, signal?: AbortSignal): Promise<Uint8Array> {
+  async readSave(
+    config: ReadConfig,
+    signal?: AbortSignal,
+  ): Promise<Uint8Array> {
     void config;
     this.currentSignal = signal ?? null;
     try {
@@ -260,8 +268,9 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
       // detect. No-op on first dump (nothing cached yet).
       await this.verifyCartUnchanged();
 
-      // Header is normally read by detectCartridge() during polling. If the
-      // user jumped past polling (mock flows, re-entry), run a detect first.
+      // Header is normally read by detectCartridge() during the scanner's
+      // initial detect. If the user jumped past detect (mock flows,
+      // re-entry), run a detect first.
       if (!this.header) {
         const info = await this.detectCartridge("nds_save");
         if (!info) {
@@ -330,13 +339,6 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
     } finally {
       this.currentSignal = null;
     }
-  }
-
-  async readSave(
-    config: ReadConfig,
-    signal?: AbortSignal,
-  ): Promise<Uint8Array> {
-    return this.readROM(config, signal);
   }
 
   async writeSave(
