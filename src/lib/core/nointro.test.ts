@@ -95,17 +95,15 @@ describe("matchesSystemName", () => {
   });
 
   it("rejects a different system whose name happens to share a prefix", () => {
-    // "DSi" — same vendor prefix, different system.
-    expect(
-      matchesSystemName(
-        "Nintendo - Nintendo DSi",
-        "Nintendo - Nintendo DS",
-      ),
-    ).toBe(false);
-    // "3DS" against the bare "DS" alias — the original bug.
+    // "3DS" against the bare "DS" alias — would have substring-matched
+    // before the boundary anchor.
     expect(matchesSystemName("Nintendo - Nintendo 3DS", "DS")).toBe(false);
-    // "Game Boy Color" against the bare "Game Boy" alias.
+    // "Game Boy Color" against the bare "Game Boy" alias — three
+    // separate No-Intro DATs (Game Boy, Game Boy Color, Game Boy
+    // Advance) all started with "Game Boy".
     expect(matchesSystemName("Nintendo - Game Boy Color", "Game Boy"))
+      .toBe(false);
+    expect(matchesSystemName("Nintendo - Game Boy Advance", "Game Boy"))
       .toBe(false);
   });
 
