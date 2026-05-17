@@ -135,7 +135,9 @@ export function ConnectStep({
       </Card>
 
       <p className="text-center text-[11px] text-muted-foreground">
-        Always unplug the device before connecting or disconnecting a cartridge.
+        Unplug the device from USB before swapping cartridges. Devices that
+        support inserting the first cartridge after connecting will prompt
+        you when they're ready to read it.
       </p>
     </div>
   );
