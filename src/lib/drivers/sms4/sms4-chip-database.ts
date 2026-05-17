@@ -15,9 +15,9 @@
  * not recognized by the device's built-in chip-detection logic.
  *
  * The specific-chip table below is retained for:
- *   - The UI override dropdown (so the user can pick a specific chip)
  *   - Future write support (per-chip page-program + erase opcodes differ)
  *   - Cross-validation when family inference is uncertain
+ *   - Future per-chip override UI (not yet wired)
  */
 
 export interface SaveChipFamily {
@@ -85,8 +85,8 @@ export const SAVE_CHIP_FAMILIES: readonly SaveChipFamily[] = [
   // with device-type 0x50 land here when that doesn't match the more-
   // specific families above. Uses M25P-class read opcodes (0x03), which
   // work universally on Numonyx-derived SPI flashes regardless of
-  // device-type sub-family. Page-program / erase opcodes are best-
-  // effort and may need overriding via the UI dropdown for writes.
+  // device-type sub-family. Page-program / erase opcodes are best-effort
+  // for any future write support.
   {
     name: "Generic Numonyx SPI flash",
     manufacturer: 0x20,
@@ -122,8 +122,8 @@ export function decodeSpiCapacityByte(b: number): number {
  *   - Authoritative size info that contradicts the generic decoder
  *     (e.g. Sanyo LE25FW chips encode size differently)
  *   - Exact-match override before family fallback
- *   - UI dropdown options
  *   - Future write support (specific chip's exact opcodes)
+ *   - Future per-chip override UI (not yet wired)
  */
 export interface SaveChipDef {
   name: string;
@@ -177,9 +177,11 @@ export const SAVE_CHIPS: readonly SaveChipDef[] = [
  *   - "eeprom-family" — chip didn't answer JEDEC RDID (M95-family
  *     EEPROMs don't), but the SMS4 firmware classified it via its
  *     family-code byte (0x01 = small EEPROM, 0x02 = medium EEPROM).
- *     EXACT SIZE is undetermined without a wrap-probe — `sizeBytes`
- *     is 0 and the UI should require the user to pick from the M95
- *     options in the dropdown before dumping.
+ *     `sizeBytes` is 0 at this point; the driver runs a wrap-probe
+ *     after `identifyByJedec` returns to refine size, promoting
+ *     `source` to `wrap-probed` on success.
+ *   - "wrap-probed" — size determined by reading at candidate sz-1
+ *     offsets and observing address-bus aliasing back to offset 0.
  *   - "unknown" — neither JEDEC nor family code matched anything.
  */
 export interface ChipIdentification {
@@ -212,10 +214,9 @@ export interface ChipIdentification {
  *      be 0xFF 0xFF 0xFF since M95s ignore SPI 0x9F)
  *   4. Unknown
  *
- * For the `eeprom-family` path we return `sizeBytes: 0` because exact
- * size needs a wrap-probe (write markers, read back, observe aliasing)
- * which we haven't implemented yet — the UI should force the user to
- * pick from the M95 options in the override dropdown.
+ * For the `eeprom-family` path we return `sizeBytes: 0` — the caller
+ * (the driver) runs a wrap-probe to refine size by observing address-
+ * bus aliasing at standard candidate offsets.
  */
 export function identifyByJedec(
   jedec: readonly [number, number, number],
@@ -293,7 +294,7 @@ export function identifyByJedec(
   if (familyCode === 0x02) {
     // Medium EEPROMs: M95080 / M95128 / M95256 / M95512 / M95M01. Pick
     // M95512 (64 KB) as the default — it's the most common medium-size
-    // DS save chip; user can override via the dropdown.
+    // DS save chip. The driver's wrap-probe refines size after this call.
     const medium = SAVE_CHIPS.find((c) => c.name.startsWith("M95512"));
     return {
       source: "eeprom-family",
@@ -311,8 +312,8 @@ export function identifyByJedec(
   }
 
   // No identification at all. Default to FLASH for the read path since
-  // the SPI READ DATA opcode (0x03) works on FLASH and the user can
-  // adjust size via the dropdown.
+  // the SPI READ DATA opcode (0x03) works on FLASH. Size stays at 0;
+  // readSave will throw rather than dump garbage.
   return {
     source: "unknown",
     jedec,

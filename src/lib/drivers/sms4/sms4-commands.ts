@@ -1,17 +1,6 @@
 /**
- * Neoflash SMS4 — protocol constants and packet builders.
- *
- * Wire model: vendor-specific USB device with bulk IN + bulk OUT plus a
- * vendor control-transfer channel. Each cart-bus operation is a three-step
- * sequence:
- *   1. Control OUT 0xAA — set transfer length + direction
- *   2. Control OUT 0xA0 (read) or 0xA1 (write) — init bulk channel
- *   3. Bulk IN on EP 0x81 / bulk OUT on EP 0x02
- *
- * Cart-bus commands are 32-byte packets framed with opcode 0x60 0xA5
- * sent over the bulk-OUT channel; the device executes the embedded
- * 8-byte NDS slot-1 command and returns N bytes (specified in the
- * packet header) on the next bulk-IN.
+ * Neoflash SMS4 — protocol constants and packet builders. See
+ * `sms4-driver.ts` for the wire-level protocol description.
  */
 
 export const SMS4_VID = 0xffab;

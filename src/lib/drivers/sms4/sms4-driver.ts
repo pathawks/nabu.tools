@@ -111,11 +111,7 @@ export class SMS4Driver implements NDSDeviceDriver {
   readonly id = "SMS4";
   readonly name = "Neoflash SMS4";
   readonly capabilities: DeviceCapability[] = [
-    {
-      systemId: "nds_save",
-      operations: [],
-      autoDetect: true,
-    },
+    { systemId: "nds_save", operations: ["dump_save"], autoDetect: true },
   ];
 
   readonly transport: UsbTransport;
@@ -266,8 +262,8 @@ export class SMS4Driver implements NDSDeviceDriver {
       this.cachedHeader = await this.readAndValidateHeader(headerReadLen);
       // Probe save chip JEDEC after header read. Best-effort: if the probe
       // fails or returns an unrecognized response, we still report the
-      // cart info; the UI lets the user pick a chip manually via the
-      // dropdown.
+      // cart info — readSave will throw rather than dump garbage if the
+      // chip stayed unknown.
       try {
         const probe = await this.probeJedec();
         const parsed = parseProbeResponse(probe);
@@ -312,15 +308,16 @@ export class SMS4Driver implements NDSDeviceDriver {
             this.log(
               `Wrap-probe didn't detect aliasing at any standard NDS ` +
                 `EEPROM size (512 B / 8 KB / 64 KB). Chip is larger or ` +
-                `non-standard — use the override dropdown.`,
+                `non-standard — this cart isn't currently dumpable with ` +
+                `the SMS4.`,
               "warn",
             );
           }
         } else {
           this.log(
             `Save-chip JEDEC probe: ${jedecStr}, family 0x${familyHex} — ` +
-              `chip not recognized by any family template. ` +
-              `Use the override dropdown to pick a similar chip.`,
+              `chip not recognized by any family template; this cart ` +
+              `isn't currently dumpable with the SMS4.`,
             "warn",
           );
         }
@@ -385,44 +382,38 @@ export class SMS4Driver implements NDSDeviceDriver {
    * lines accordingly and returns the page on bulk-IN; no chip-side state
    * machine is touched, so this is non-destructive.
    *
-   * `config.params` may carry an override `{ saveSize, cmdTable, flag }`
-   * (the scanner sends one when the user picks a chip in the dropdown);
-   * otherwise we fall back to whatever `cachedSaveChip` settled on during
-   * `detectCartridge`. If neither path supplies a usable cmd table, throw
-   * before issuing any USB transfers — better than reading 64 KB of 0xFF
-   * and writing it to disk.
+   * `config.params.saveSizeBytes` (if supplied by the caller) overrides
+   * the size auto-detected during `detectCartridge`; otherwise we fall
+   * back to `cachedSaveChip.sizeBytes`. If neither path yields a usable
+   * size or cmd table, throw before issuing any USB transfers — better
+   * than reading 64 KB of 0xFF and writing it to disk.
    */
   async readSave(
     config: ReadConfig,
     signal?: AbortSignal,
   ): Promise<Uint8Array> {
-    const override = config?.params as
-      | {
-          saveSize?: number;
-          cmdTable?: readonly number[];
-          flag?: 0x07 | 0x0f;
-        }
-      | undefined;
+    const overrideSize = config?.params?.saveSizeBytes as number | undefined;
 
-    const cmdTable = override?.cmdTable ?? this.cachedSaveChip?.cmdTable;
-    const flag = override?.flag ?? this.cachedSaveChip?.flag;
+    const cmdTable = this.cachedSaveChip?.cmdTable;
+    const flag = this.cachedSaveChip?.flag;
     const sizeBytes =
-      override?.saveSize ??
+      overrideSize ??
       (this.cachedSaveChip && this.cachedSaveChip.sizeBytes > 0
         ? this.cachedSaveChip.sizeBytes
         : 0);
 
     if (!cmdTable || cmdTable.length !== 14 || !flag) {
       throw new Error(
-        "Cannot read save: no save-chip identified. Insert a cart, wait for " +
-          "detection, then pick a chip from the override dropdown if " +
-          "auto-detect failed.",
+        "Cannot read save: no save-chip identified. Auto-detect didn't " +
+          "find a recognized chip — this cart isn't currently dumpable " +
+          "with the SMS4.",
       );
     }
     if (sizeBytes <= 0) {
       throw new Error(
-        "Cannot read save: save-chip size is unknown. Pick a specific chip " +
-          "in the override dropdown so we know how many bytes to read.",
+        "Cannot read save: save-chip size is unknown. Auto-detect couldn't " +
+          "determine the size — this cart isn't currently dumpable with " +
+          "the SMS4.",
       );
     }
 
