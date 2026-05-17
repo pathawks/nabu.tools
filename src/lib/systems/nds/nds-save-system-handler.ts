@@ -113,7 +113,7 @@ export class NDSSaveSystemHandler implements SystemHandler {
     return {
       systemId: "nds_save",
       params: {
-        saveSize: values.saveSizeBytes as number | undefined,
+        saveSizeBytes: values.saveSizeBytes as number | undefined,
         title: values.title as string | undefined,
         gameCode: values.gameCode as string | undefined,
       },
