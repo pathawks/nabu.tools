@@ -1,6 +1,6 @@
 /**
- * Nintendo maker/licensee codes (2-character ASCII).
- * Used in NDS ROM headers at offset 0x10-0x11.
+ * Maker/licensee codes (2-character ASCII) used in NDS ROM headers at
+ * offset 0x10-0x11.
  *
  * Source: devkitPro ndstool ndscodes.cpp (GPL-3.0), cross-referenced with
  * Pan Docs (gbdev.io) and GBATEK.

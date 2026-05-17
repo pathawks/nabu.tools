@@ -1,0 +1,97 @@
+// PowerSaves for 3DS — HID command bytes and packet framing.
+// Protocol reverse-engineered by kitlith: github.com/kitlith/powerslaves (MIT).
+//
+// Packet framing (64-byte HID output report, report-id 0x00):
+//   byte 0    : opcode
+//   bytes 1-2 : command length  (little-endian)
+//   bytes 3-4 : response length (little-endian)
+//   bytes 5+  : command bytes, zero-padded to 64
+//
+// Opcode `0x08` triggers ARM SYSRESETREQ (confirmed 2026-04-23: device
+// disconnects in ~140 ms, re-enumerates as bcdDevice 0x0011 normal-mode in
+// ~236 ms total). Opcode `0x09` has the same handler on the stub; if kept
+// in the running firmware it would also trigger reset. Opcode `0x99` plus
+// a magic sequence triggers firmware reflash — the `99 44 46 55` prefix
+// kitlith documented drops the device into bcdDevice 0.01 recovery mode.
+// Never send `0x99`.
+
+export const CMD = {
+  /** Returns a 64-byte device identifier starting with ASCII "App". */
+  TEST: 0x02,
+  /** ARM SYSRESETREQ — soft-reset the MCU. USB re-enumerates ~236 ms later. */
+  RESET: 0x08,
+  /** Reset the MCU so a mode change can be issued. */
+  SWITCH_MODE: 0x10,
+  /** Enable cartridge-ROM protocol (NTR/CTR). */
+  ROM_MODE: 0x11,
+  /** Enable SPI passthrough to the save chip. */
+  SPI_MODE: 0x12,
+  /** NDS cartridge-ROM command (fixed 8 command bytes). */
+  NTR: 0x13,
+  /** 3DS cartridge-ROM command (fixed 16 command bytes). Not used here. */
+  CTR: 0x14,
+  /** Raw SPI passthrough (variable command length). */
+  SPI: 0x15,
+} as const;
+
+export const PACKET_SIZE = 64;
+export const COMMAND_TIMEOUT_MS = 2000;
+
+/** NTR ROM-protocol commands — byte 0 is the opcode, rest zero-padded. */
+export const NTR_CMD = {
+  /** Read 0x200-byte chunk from current ROM address (no args). */
+  READ_ROM: 0x00,
+  /** Read 4-byte chip ID. */
+  GET_CHIP_ID: 0x90,
+} as const;
+
+/** Standard SPI save-chip opcodes. */
+export const SPI_CMD = {
+  /** Read status register (1 reply byte). */
+  RDSR: 0x05,
+  /** Read data starting at 3-byte address (reply length = bytes wanted). */
+  READ: 0x03,
+  /** JEDEC ID query (3 reply bytes). FLASH only; EEPROM returns zeros. */
+  JEDEC_ID: 0x9f,
+} as const;
+
+/**
+ * Decode FLASH capacity byte (third byte of JEDEC response) to size in bytes.
+ * Common NDS save-FLASH chips:
+ *   0x13 = 512 KB   0x14 = 1 MB   0x15 = 2 MB   0x16 = 4 MB
+ *
+ * The upper bound is 0x18 (16 MB): real DS save-FLASH tops out around 8 MB
+ * (M25P80), 0x18 leaves headroom, and we'd hit signed-shift overflow above
+ * 0x1E. Capacity bytes outside this range trip the "report this cart"
+ * error in the caller rather than silently returning a negative size.
+ */
+export function flashSizeFromJedec(capacityByte: number): number | null {
+  if (capacityByte < 0x10 || capacityByte > 0x18) return null;
+  return 1 << capacityByte;
+}
+
+/**
+ * A handful of DS carts carry both the save chip and an infrared
+ * transceiver on the SPI bus, selected by separate chip-select lines.
+ * The PowerSaves 3DS firmware can only drive CS1; on these carts CS1
+ * lands on the IR module instead of the save chip, so a JEDEC-ID probe
+ * gets back the IR module's response rather than a real SPI-FLASH ID.
+ *
+ * Observed responses across sessions:  00 7F 00, 00 7F E0, 00 7F FF
+ * (the third byte appears to be whatever the IR receive buffer last
+ * held). Real JEDEC manufacturer codes start at 0x01, and real DS save
+ * chips return either all-zero (EEPROM, doesn't implement JEDEC) or a
+ * valid manufacturer ID — never the `00 7F …` signature. So the first
+ * two bytes alone are sufficient to identify this case unambiguously.
+ *
+ * This is a hard limitation of the PowerSaves firmware (no CS2-select
+ * opcode); it cannot be worked around. Other DS-cart adapters that
+ * expose both chip-select lines can dump these carts normally.
+ */
+export function isIrModuleJedecSignature(jedec: Uint8Array): boolean {
+  return jedec.length >= 2 && jedec[0] === 0x00 && jedec[1] === 0x7f;
+}
+
+export const DEVICE_FILTERS: HIDDeviceFilter[] = [
+  { vendorId: 0x1c1a, productId: 0x03d5 }, // Datel PowerSaves for 3DS
+];

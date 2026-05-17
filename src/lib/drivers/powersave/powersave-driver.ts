@@ -50,6 +50,8 @@ export class PowerSaveDriver implements DeviceDriver {
       firmwareVersion: "",
       deviceName: this.name,
       capabilities: this.capabilities,
+      // Scanner UI polls continuously — tags come and go freely.
+      hotSwap: true,
     };
   }
 

@@ -58,10 +58,16 @@ export class SerialTransport implements Transport {
     });
 
     const info = port.getInfo();
+    // Web Serial doesn't expose productName; the vendor:product pair is the
+    // most identifying string available.
+    const name =
+      info.usbVendorId !== undefined && info.usbProductId !== undefined
+        ? `${info.usbVendorId.toString(16)}:${info.usbProductId.toString(16)}`
+        : "Serial Device";
     return {
       vendorId: info.usbVendorId,
       productId: info.usbProductId,
-      name: "Serial Device",
+      name,
       transport: "serial",
       raw: port,
     };

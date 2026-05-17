@@ -2,7 +2,19 @@ import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DEVICES } from "@/lib/core/devices";
+import { DEVICES, type DeviceDef } from "@/lib/core/devices";
+import { DeviceInfoDialog } from "@/components/wizard/device-info-dialog";
+
+const MOCK_DEVICE: DeviceDef = {
+  id: "MOCK",
+  name: "Mock Device",
+  vendorId: null,
+  productId: null,
+  transport: "webusb",
+  systems: [{ id: "mock", name: "Mock System" }],
+  description:
+    "Simulated device for browser testing. Available via the ?mock query parameter; useful for UI development without hardware attached.",
+};
 
 interface ConnectStepProps {
   onConnect: (deviceId: string) => void;
@@ -87,13 +99,16 @@ export function ConnectStep({
                       {dev.systems.map((s) => s.name).join(", ")}
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => onConnect(dev.id)}
-                    disabled={!transportAvailable[dev.transport]}
-                  >
-                    Connect
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <DeviceInfoDialog device={dev} />
+                    <Button
+                      size="sm"
+                      onClick={() => onConnect(dev.id)}
+                      disabled={!transportAvailable[dev.transport]}
+                    >
+                      Connect
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -107,9 +122,12 @@ export function ConnectStep({
                     Simulated device for testing
                   </div>
                 </div>
-                <Button size="sm" onClick={onMockConnect}>
-                  Connect
-                </Button>
+                <div className="flex items-center gap-1">
+                  <DeviceInfoDialog device={MOCK_DEVICE} />
+                  <Button size="sm" onClick={onMockConnect}>
+                    Connect
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -117,7 +135,9 @@ export function ConnectStep({
       </Card>
 
       <p className="text-center text-[11px] text-muted-foreground">
-        Always unplug the device before connecting or disconnecting a cartridge.
+        Unplug the device from USB before swapping cartridges. Devices that
+        support inserting the first cartridge after connecting will prompt
+        you when they're ready to read it.
       </p>
     </div>
   );

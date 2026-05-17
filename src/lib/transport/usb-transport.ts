@@ -42,19 +42,51 @@ export class UsbTransport implements Transport {
     return this.device?.opened ?? false;
   }
 
-  /**
-   * Expose the underlying USBDevice so drivers can run out-of-band probes
-   * (e.g. sibling-protocol detection on shared VID/PID) without relying on
-   * `navigator.usb.getDevices().find(...)`, which can pick the wrong device
-   * when multiple matching units are paired.
-   */
-  getDevice(): USBDevice | null {
-    return this.device;
+  /** Returns the device's USB descriptor `bcdDevice` as a 16-bit BCD
+   *  number, or null if not connected. Used by drivers whose firmware
+   *  version lives in the USB descriptor rather than in a vendor query. */
+  getBcdDevice(): number | null {
+    if (!this.device) return null;
+    return (
+      (this.device.deviceVersionMajor << 8) |
+      (this.device.deviceVersionMinor << 4) |
+      this.device.deviceVersionSubminor
+    );
+  }
+
+  /** Best-effort halt-clear on a bulk endpoint. Used by drivers whose
+   *  device firmware can leave a STALL on an endpoint after the host
+   *  aborts a transfer mid-flight. */
+  async clearHalt(direction: "in" | "out", endpoint: number): Promise<void> {
+    if (!this.device) throw new Error("USB device not connected");
+    await this.device.clearHalt(direction, endpoint);
+  }
+
+  /** Vendor-class control IN transfer. Returns the response data as a
+   *  Uint8Array (zero-length if the device returned no data stage). */
+  async controlTransferIn(
+    setup: USBControlTransferParameters,
+    length: number,
+  ): Promise<Uint8Array> {
+    if (!this.device) throw new Error("USB device not connected");
+    const result = await this.device.controlTransferIn(setup, length);
+    return result.data
+      ? new Uint8Array(
+          result.data.buffer,
+          result.data.byteOffset,
+          result.data.byteLength,
+        )
+      : new Uint8Array(0);
   }
 
   /** Prompt the user to select a USB device. */
   async connect(_options?: TransportConnectOptions): Promise<DeviceIdentity> {
-    const device = await navigator.usb!.requestDevice({
+    if (!navigator.usb) {
+      throw new Error(
+        "WebUSB is not available. Use Chrome 89+ over HTTPS or localhost.",
+      );
+    }
+    const device = await navigator.usb.requestDevice({
       filters: this.filters,
     });
     return this.openDevice(device);
@@ -66,9 +98,23 @@ export class UsbTransport implements Transport {
   }
 
   private async openDevice(device: USBDevice): Promise<DeviceIdentity> {
-    await device.open();
-    await device.selectConfiguration(1);
-    await device.claimInterface(0);
+    // Device may already be open + claimed after Vite HMR or StrictMode
+    // double-mount (no full page unload). Re-claiming throws "Unable to
+    // claim interface", so check before each step.
+    if (!device.opened) {
+      await device.open();
+    }
+    if (device.configuration?.configurationValue !== 1) {
+      await device.selectConfiguration(1);
+    }
+    // configuration.interfaces[] is not guaranteed to be ordered by
+    // interfaceNumber, so look up by number rather than array index.
+    const iface = device.configuration?.interfaces.find(
+      (i) => i.interfaceNumber === 0,
+    );
+    if (!iface?.claimed) {
+      await device.claimInterface(0);
+    }
 
     this.device = device;
 
@@ -117,21 +163,29 @@ export class UsbTransport implements Transport {
 
     const ep = options?.endpointIn ?? this.endpointIn;
     const timeout = options?.timeout ?? 5000;
-    const result = await Promise.race([
-      this.device.transferIn(ep, length),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("USB receive timeout")), timeout),
-      ),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        this.device.transferIn(ep, length),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error("USB receive timeout")),
+            timeout,
+          );
+        }),
+      ]);
 
-    if (result.data) {
-      return new Uint8Array(
-        result.data.buffer,
-        result.data.byteOffset,
-        result.data.byteLength,
-      );
+      if (result.data) {
+        return new Uint8Array(
+          result.data.buffer,
+          result.data.byteOffset,
+          result.data.byteLength,
+        );
+      }
+      return new Uint8Array(0);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
-    return new Uint8Array(0);
   }
 
   on<K extends keyof TransportEvents>(
@@ -143,6 +197,7 @@ export class UsbTransport implements Transport {
 
   private onDisconnect = (event: USBConnectionEvent) => {
     if (event.device === this.device) {
+      navigator.usb!.removeEventListener("disconnect", this.onDisconnect);
       this.device = null;
       this.events.onDisconnect?.();
     }

@@ -523,7 +523,7 @@ export class EMSNDSDriver implements NDSDeviceDriver {
    */
   private resolveSaveSize(config: ReadConfig): number {
     if (!this.status) throw new Error("Device not initialized");
-    const configured = config.params.saveSize as number | undefined;
+    const configured = config.params.saveSizeBytes as number | undefined;
     if (configured === undefined) return this.status.saveSize;
     if (configured > this.status.saveSize) {
       throw new Error(

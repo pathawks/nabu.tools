@@ -22,9 +22,10 @@ https://github.com/lesserkuma/FlashGBX
 GBxCart RW command opcodes and device protocol sequences in
 src/lib/drivers/gbxcart/ were ported from FlashGBX's LK_Device.py.
 
-License: GNU General Public License v3.0
+License: GNU General Public License v3.0 only (GPL-3.0-only)
 
-See LICENSE in this repository (same license applies to nabu as a whole).
+See LICENSE in this repository — the full GPL-3.0 text reproduced
+there applies to this component as well.
 
 ================================================================================
 
@@ -90,12 +91,12 @@ SOFTWARE.
 
 ================================================================================
 
-ndsplus
-https://github.com/Thulinma/ndsplus
+ps3mca-ps1
+https://github.com/paolo-caroni/ps3mca-ps1
 
-EMS NDS Adapter+ USB protocol commands and save read/write sequences in
-src/lib/drivers/ems-nds/ were implemented from the ndsplus reference
-implementation by Thulinma.
+PS3 Memory Card Adaptor protocol (command framing, opcodes, PS1 frame
+read/response layout) in src/lib/drivers/ps3-mca/ was ported from the
+paolo-caroni ps3mca-ps1 libusb driver.
 
 License: GNU General Public License v3.0
 
@@ -110,9 +111,10 @@ NDS maker-code → publisher name lookup table in
 src/lib/systems/nds/nds-maker-codes.ts was derived from ndstool's
 ndscodes.cpp.
 
-License: GNU General Public License v3.0
+License: GNU General Public License v3.0 only (GPL-3.0-only)
 
-See LICENSE in this repository (same license applies to nabu as a whole).
+See LICENSE in this repository — the full GPL-3.0 text reproduced
+there applies to this component as well.
 
 ================================================================================
 

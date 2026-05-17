@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
+import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ScanlineOverlay } from "@/components/shared/scanline-overlay";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -15,6 +16,8 @@ import { useConnection } from "@/hooks/use-connection";
 import { DatabasePanel } from "@/components/shared/database-panel";
 import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
+import { Ps1SystemHandler } from "@/lib/systems/ps1/ps1-system-handler";
+import { NOINTRO_SYSTEM_NAMES } from "@/lib/core/nointro";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
 import { InfinityScanner } from "@/components/wizard/infinity-scanner";
 import { NDSScanner } from "@/components/wizard/nds-scanner";
@@ -23,6 +26,7 @@ import type { NDSDeviceDriver } from "@/lib/systems/nds/nds-header";
 import type {
   DeviceDriver,
   DeviceInfo,
+  DeviceCapability,
   SystemHandler,
   ConfigValues,
   CartridgeInfo,
@@ -34,7 +38,14 @@ const ALL_SYSTEMS: SystemHandler[] = [
   new GBSystemHandler("gb"),
   new GBSystemHandler("gbc"),
   new GBASystemHandler(),
+  new Ps1SystemHandler(),
 ];
+
+/** True when the driver exposes both ROM and save dumping as separate ops. */
+const hasSeparateSaveRead = (cap: DeviceCapability | undefined): boolean =>
+  !!cap &&
+  cap.operations.includes("dump_rom") &&
+  cap.operations.includes("dump_save");
 
 const ACTIVE_STATES: ReadonlySet<DumpJobState> = new Set<DumpJobState>([
   "dumping_rom",
@@ -74,16 +85,26 @@ function App() {
   const [configValues, setConfigValues] = useState<ConfigValues>({});
   const [autoDetected, setAutoDetected] = useState<CartridgeInfo | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [unsupportedDetection, setUnsupportedDetection] = useState<{
+    title: string;
+    reason: string;
+  } | null>(null);
 
   /** Build prefilled config values from detected CartridgeInfo. */
   const prefillFromCartInfo = useCallback(
-    (system: SystemHandler, info: CartridgeInfo): ConfigValues => {
+    (
+      system: SystemHandler,
+      info: CartridgeInfo,
+      hasSeparateSaveRead: boolean,
+    ): ConfigValues => {
       const prefilled: ConfigValues = {};
       if (info.romSize) prefilled.romSizeBytes = info.romSize;
       if (info.saveSize) {
         prefilled.saveSizeBytes = info.saveSize;
-        // Save-only systems use readROM() for save data — don't trigger a second read
-        if (system.fileExtension !== ".sav") {
+        // Only request a second readSave() pass when the driver declares
+        // dump_rom and dump_save as separate operations. Save-only drivers
+        // (e.g. PS3 MCA) emit the save image directly from readROM().
+        if (hasSeparateSaveRead) {
           prefilled.backupSave = info.saveSize > 0;
         }
       }
@@ -113,11 +134,47 @@ function App() {
   const autoDetectSystem = useCallback(
     async (drv: DeviceDriver) => {
       setDetecting(true);
+      setUnsupportedDetection(null);
       log("Auto-detecting cartridge system...");
       try {
-        const result = await drv.detectSystem();
+        let result: Awaited<ReturnType<DeviceDriver["detectSystem"]>> = null;
+        try {
+          result = await drv.detectSystem();
+        } catch (e) {
+          log((e as Error).message, "error");
+        }
+
+        // Driver flagged the cartridge as detectable but not dumpable.
+        if (result?.unsupported) {
+          const reason = result.unsupported.reason;
+          log(reason, "warn");
+          setUnsupportedDetection({
+            title: result.cartInfo.title ?? "Unsupported cartridge",
+            reason,
+          });
+          setSelectedSystem(null);
+          setAutoDetected(null);
+          setConfigValues({});
+          return;
+        }
+
         if (!result) {
-          log("No cartridge detected — select system manually", "warn");
+          log("No cartridge detected", "warn");
+          setAutoDetected(null);
+          setConfigValues({});
+          // If the driver has exactly one dumpable system, pre-select it so
+          // the user has a Start Dump button once they insert the right card.
+          const dumpableIds = new Set(
+            drv.capabilities
+              .filter((c) => c.operations.length > 0)
+              .map((c) => c.systemId),
+          );
+          const dumpable = ALL_SYSTEMS.filter((s) =>
+            dumpableIds.has(s.systemId),
+          );
+          if (dumpable.length === 1) {
+            setSelectedSystem(dumpable[0]);
+          }
           return;
         }
 
@@ -125,9 +182,16 @@ function App() {
         if (!system) return;
 
         log(
-          `Detected: ${result.cartInfo.title ?? "Unknown"} (${result.cartInfo.mapper?.name ?? "unknown mapper"})`,
+          result.cartInfo.mapper
+            ? `Detected: ${result.cartInfo.title ?? "Unknown"} (${result.cartInfo.mapper.name ?? "unknown mapper"})`
+            : `Detected: ${result.cartInfo.title ?? "Unknown"}`,
         );
-        const prefilled = prefillFromCartInfo(system, result.cartInfo);
+        const cap = drv.capabilities.find((c) => c.systemId === result.systemId);
+        const prefilled = prefillFromCartInfo(
+          system,
+          result.cartInfo,
+          hasSeparateSaveRead(cap),
+        );
         const seeded = seedConfigDefaults(system, prefilled, result.cartInfo);
 
         setSelectedSystem(system);
@@ -161,6 +225,7 @@ function App() {
     setSelectedSystem(null);
     setConfigValues({});
     setAutoDetected(null);
+    setUnsupportedDetection(null);
     dumpJob.reset();
   }, [connection, dumpJob]);
 
@@ -191,6 +256,15 @@ function App() {
     return "idle" as const;
   }, [dumpJob.state, connection.driver]);
 
+  // Decoding the PS1 dump summary allocates fresh icon arrays per call, which
+  // would restart the IconCanvas animation on every unrelated re-render
+  // (e.g. log-panel updates). Memoize on the rom data reference.
+  const dumpSummary = useMemo(() => {
+    const data = dumpJob.result?.rom?.data;
+    if (!data) return null;
+    return selectedSystem?.summarizeDump?.(data) ?? null;
+  }, [selectedSystem, dumpJob.result?.rom?.data]);
+
   const handleSelectSystem = useCallback(
     async (system: SystemHandler) => {
       dumpJob.reset();
@@ -201,18 +275,21 @@ function App() {
       let prefilled: ConfigValues = {};
 
       if (connection.driver) {
-        const canAutoDetect = connection.driver.capabilities.some(
-          (c) => c.systemId === system.systemId && c.autoDetect,
+        const cap = connection.driver.capabilities.find(
+          (c) => c.systemId === system.systemId,
         );
+        const canAutoDetect = !!cap?.autoDetect;
         if (canAutoDetect) {
           log(`Auto-detecting ${system.displayName} cartridge...`);
           const info = await connection.driver.detectCartridge(system.systemId);
           if (info) {
             detected = info;
             log(
-              `Detected: ${info.title ?? "Unknown"} (${info.mapper?.name ?? "unknown mapper"})`,
+              info.mapper
+                ? `Detected: ${info.title ?? "Unknown"} (${info.mapper.name ?? "unknown mapper"})`
+                : `Detected: ${info.title ?? "Unknown"}`,
             );
-            prefilled = prefillFromCartInfo(system, info);
+            prefilled = prefillFromCartInfo(system, info, hasSeparateSaveRead(cap));
           } else {
             log("No cartridge detected", "warn");
           }
@@ -280,6 +357,18 @@ function App() {
     dumpJob.reset();
     await handleDisconnect();
   }, [dumpJob, handleDisconnect]);
+
+  /** Re-run cartridge detection on hot-swap devices. Resets any prior dump
+   *  result so transitioning from a completed dump back to detect feels
+   *  natural. */
+  const handleScan = useCallback(() => {
+    dumpJob.reset();
+    setAutoDetected(null);
+    setUnsupportedDetection(null);
+    if (connection.driver) autoDetectSystem(connection.driver);
+  }, [dumpJob, connection.driver, autoDetectSystem]);
+
+  const hotSwap = connection.deviceInfo?.hotSwap === true;
 
   return (
     <TooltipProvider>
@@ -349,29 +438,77 @@ function App() {
               />
             ) : (
               <div className="flex flex-col gap-6">
-                <ConfigureStep
-                  deviceInfo={connection.deviceInfo}
-                  systems={availableSystems}
-                  selectedSystem={selectedSystem}
-                  onSelectSystem={handleSelectSystem}
-                  configValues={configValues}
-                  onConfigChange={handleConfigChange}
-                  autoDetected={autoDetected}
-                  hasVerificationDb={
-                    selectedSystem
-                      ? !!nointro.getDb(selectedSystem.systemId)
-                      : false
-                  }
-                  detecting={detecting}
-                  busy={
-                    dumpJob.state !== "idle" &&
-                    dumpJob.state !== "complete" &&
-                    dumpJob.state !== "error" &&
-                    dumpJob.state !== "aborted"
-                  }
-                  onStartDump={handleStartDump}
-                  onDisconnect={handleDisconnect}
-                />
+                {/* Persistent device header — Disconnect (and Scan, on
+                    hot-swap devices) stays visible across all wizard states. */}
+                <div className="flex items-center justify-between text-sm">
+                  {connection.deviceInfo && (
+                    <span className="text-muted-foreground">
+                      {connection.deviceInfo.deviceName}
+                      {connection.deviceInfo.firmwareVersion && (
+                        <>
+                          {" "}
+                          <span className="ml-1 text-muted-foreground/50">
+                            {connection.deviceInfo.firmwareVersion}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2">
+                    {hotSwap && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleScan}
+                        disabled={
+                          detecting ||
+                          (dumpJob.state !== "idle" &&
+                            dumpJob.state !== "complete" &&
+                            dumpJob.state !== "error" &&
+                            dumpJob.state !== "aborted")
+                        }
+                      >
+                        Scan
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDisconnect}
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                </div>
+                {dumpJob.state !== "complete" && (
+                  <ConfigureStep
+                    systems={availableSystems}
+                    selectedSystem={selectedSystem}
+                    onSelectSystem={handleSelectSystem}
+                    configValues={configValues}
+                    onConfigChange={handleConfigChange}
+                    autoDetected={autoDetected}
+                    unsupportedDetection={unsupportedDetection}
+                    suggestLoadDat={
+                      !!selectedSystem &&
+                      NOINTRO_SYSTEM_NAMES[selectedSystem.systemId] !==
+                        undefined &&
+                      !nointro.getDb(selectedSystem.systemId) &&
+                      !!connection.driver?.capabilities
+                        .find((c) => c.systemId === selectedSystem.systemId)
+                        ?.operations.includes("dump_rom")
+                    }
+                    detecting={detecting}
+                    busy={
+                      dumpJob.state !== "idle" &&
+                      dumpJob.state !== "error" &&
+                      dumpJob.state !== "aborted"
+                    }
+                    onStartDump={handleStartDump}
+                    hotSwap={hotSwap}
+                    compatibilityNote={connection.deviceInfo?.compatibilityNote}
+                  />
+                )}
                 {isDumping(dumpJob.state) && (
                   <DumpStep
                     state={dumpJob.state}
@@ -398,7 +535,13 @@ function App() {
                     deviceInfo={connection.deviceInfo}
                     cartInfo={autoDetected}
                     systemDisplayName={selectedSystem?.displayName ?? ""}
-                    onReset={handleReset}
+                    hotSwap={hotSwap}
+                    saveOnly={
+                      !connection.driver?.capabilities
+                        .find((c) => c.systemId === selectedSystem?.systemId)
+                        ?.operations.includes("dump_rom")
+                    }
+                    summary={dumpSummary}
                   />
                 )}
               </div>

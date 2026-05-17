@@ -1,8 +1,6 @@
 /**
- * System handler for Nintendo DS / 3DS save files.
- *
- * Used with the EMS NDS Adapter+, which can only read/write saves (not ROMs).
- * The save data arrives via readROM() as the primary output.
+ * System handler for DS / 3DS save files. Save-only devices surface the
+ * save data via readROM() as the primary output.
  */
 
 import type {
@@ -18,6 +16,32 @@ import type {
   VerificationResult,
 } from "@/lib/types";
 import { crc32, sha1Hex, sha256Hex, formatBytes } from "@/lib/core/hashing";
+
+/**
+ * Standard DS save-chip capacities by memory kind, used by validateDump's
+ * sanity check.
+ *
+ *   EEPROM: M95-family (256 B / 512 B / 8 KB / 64 KB)
+ *   FLASH:  Numonyx + Sanyo SPI flash (128 KB through 16 MB)
+ */
+const STANDARD_NDS_SAVE_SIZES = {
+  EEPROM: [
+    256,       // 0.25 KB / 2 Kbit "tiny" EEPROM (1-byte address)
+    512,       // 4 Kbit EEPROM
+    8192,      // 64 Kbit EEPROM
+    65536,     // 512 Kbit EEPROM
+  ],
+  FLASH: [
+    131072,    // 1 Mbit FLASH (M25P10 / M25PE10)
+    262144,    // 2 Mbit FLASH
+    524288,    // 4 Mbit FLASH
+    1048576,   // 8 Mbit FLASH
+    2097152,   // 16 Mbit FLASH
+    4194304,   // 32 Mbit FLASH
+    8388608,   // 64 Mbit FLASH
+    16777216,  // 128 Mbit FLASH (rare)
+  ],
+} as const;
 
 export class NDSSaveSystemHandler implements SystemHandler {
   readonly systemId = "nds_save";
@@ -89,7 +113,7 @@ export class NDSSaveSystemHandler implements SystemHandler {
     return {
       systemId: "nds_save",
       params: {
-        saveSize: values.saveSizeBytes as number | undefined,
+        saveSizeBytes: values.saveSizeBytes as number | undefined,
         title: values.title as string | undefined,
         gameCode: values.gameCode as string | undefined,
       },
@@ -99,10 +123,16 @@ export class NDSSaveSystemHandler implements SystemHandler {
   buildOutputFile(rawData: Uint8Array, config: ReadConfig): OutputFile {
     const title = config.params.title as string | undefined;
     const gameCode = config.params.gameCode as string | undefined;
-    const basename = (title ?? gameCode ?? "nds_save")
-      .replace(/[^a-zA-Z0-9_ -]/g, "")
-      .trim()
-      .replace(/\s+/g, "_");
+    // Strip only the characters that are actually unsafe across Windows,
+    // Linux, and macOS filesystems — parens, commas, periods, spaces,
+    // apostrophes are all fine and let the filename match the No-Intro
+    // title verbatim. Fall back to a generic name if sanitization wipes
+    // the string (only possible if the title is entirely path-reserved
+    // punctuation).
+    const sanitized = (title ?? gameCode ?? "")
+      .replace(/[<>:"/\\|?*]/g, "")
+      .trim();
+    const basename = sanitized || "nds_save";
 
     return {
       data: rawData,
@@ -134,11 +164,11 @@ export class NDSSaveSystemHandler implements SystemHandler {
 
   /**
    * Generic sanity checks on a freshly-read save dump. There's no
-   * NDS-wide save file format, so we can't verify content — but we
+   * DS-wide save file format, so we can't verify content — but we
    * CAN catch the three most common dumper bugs without game-specific
    * knowledge:
    *
-   *   1. **Size not a standard SPI chip size.** NDS save chips come
+   *   1. **Size not a standard SPI chip size.** DS save chips come
    *      in known capacities (4 Kbit / 64 Kbit / 512 Kbit EEPROM and
    *      2/4/8 Mbit FLASH). A dump of any other size points at a
    *      miscounted-chunks bug.
@@ -155,38 +185,41 @@ export class NDSSaveSystemHandler implements SystemHandler {
   validateDump(data: Uint8Array): { ok: boolean; warnings: string[] } {
     const warnings: string[] = [];
 
-    const STANDARD_SIZES = new Set([
-      512,       // 4 Kbit EEPROM
-      8192,      // 64 Kbit EEPROM
-      65536,     // 512 Kbit EEPROM
-      131072,    // 1 Mbit FLASH
-      262144,    // 2 Mbit FLASH
-      524288,    // 4 Mbit FLASH
-      1048576,   // 8 Mbit FLASH
-      16777216,  // 128 Mbit FLASH (rare; e.g. Professional baseball)
+    const STANDARD_SIZES: ReadonlySet<number> = new Set([
+      ...STANDARD_NDS_SAVE_SIZES.EEPROM,
+      ...STANDARD_NDS_SAVE_SIZES.FLASH,
     ]);
     if (!STANDARD_SIZES.has(data.length)) {
       warnings.push(
-        `Save size ${formatBytes(data.length)} is not a standard NDS save-chip capacity — likely a chunking bug`,
+        `Save size ${formatBytes(data.length)} is not a standard DS save-chip capacity — likely a chunking bug`,
       );
     }
 
     // Uniform-byte check first. If every byte is the same value, the mirror
     // check below would trivially also fire but with less useful wording;
-    // skip it. all-0x00 means the firmware returned zero-padded responses
-    // without ever clocking the chip; all-0xFF means the bus was idle.
+    // skip it. all-0x00 OR all-0xFF can legitimately mean the chip is
+    // blank/erased (FLASH chips ship with 0xFF; some EEPROMs zero on
+    // first power-on) — flag both as ambiguous between "blank" and "bad
+    // read" so the user can re-seat and compare rather than assume the
+    // worst.
     if (data.length > 0 && data.every((b) => b === data[0])) {
       if (data[0] === 0) {
         warnings.push(
-          "Dump is all zeros — the chip didn't respond; real dumps always contain some non-zero bytes (0xFF for unwritten regions)",
+          "Dump is all zero bytes. The cartridge may have been blank " +
+            "(brand-new save), the contacts may be dirty, or the read " +
+            "may have failed. Re-seat the cartridge and dump again to compare.",
         );
       } else if (data[0] === 0xff) {
         warnings.push(
-          "Dump is all 0xFF — the chip is returning idle-bus bytes; save-read command may not be reaching the chip",
+          "Dump is all 0xFF. The cartridge may have been blank (brand-" +
+            "new FLASH ships erased to 0xFF), the save chip may not have " +
+            "responded and left the bus idle, or the contacts may be " +
+            "dirty. Re-seat the cartridge and dump again to compare.",
         );
       } else {
         warnings.push(
-          `Dump is all 0x${data[0].toString(16).padStart(2, "0")} — the chip is stuck, save-read command likely failed`,
+          `Dump is all 0x${data[0].toString(16).padStart(2, "0")} — the ` +
+            "save chip appears stuck. Re-seat the cartridge and dump again.",
         );
       }
       return { ok: false, warnings };
@@ -203,7 +236,11 @@ export class NDSSaveSystemHandler implements SystemHandler {
       }
       if (mirrored) {
         warnings.push(
-          "First half of the dump equals the second half — the chip may be smaller than the detected size (address wraps)",
+          "First half of the dump equals the second half. This usually " +
+            "means the chip is smaller than the detected size and addresses " +
+            "wrapped, but some games intentionally store their save data " +
+            "twice for redundancy — if the dump loads correctly in an " +
+            "emulator and shows the expected progress, it's fine.",
         );
       }
     }

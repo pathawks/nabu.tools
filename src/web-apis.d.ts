@@ -130,6 +130,7 @@ interface USBDevice {
     setup: USBControlTransferParameters,
     data?: BufferSource,
   ): Promise<USBOutTransferResult>;
+  clearHalt(direction: "in" | "out", endpointNumber: number): Promise<void>;
 }
 
 interface USBConfiguration {

@@ -38,6 +38,7 @@ export class MockDriver implements DeviceDriver {
       firmwareVersion: "mock-1.0",
       deviceName: "Mock Device",
       capabilities: this.capabilities,
+      hotSwap: true,
     };
   }
 
@@ -52,7 +53,7 @@ export class MockDriver implements DeviceDriver {
     this.log(`Mock: detecting ${systemId} cartridge`);
     if (systemId === "gb" || systemId === "gbc") {
       return {
-        title: "POKEMON BLUE",
+        title: "MOCK CART GB",
         mapper: { id: 3, name: "MBC3" },
         romSize: 1024 * 1024,
         saveSize: 32768,
@@ -61,7 +62,7 @@ export class MockDriver implements DeviceDriver {
     }
     if (systemId === "gba") {
       return {
-        title: "POKEMON EMER",
+        title: "MOCK CART GBA",
         mapper: { id: 0, name: "None" },
         romSize: 16 * 1024 * 1024,
         saveSize: 131072,

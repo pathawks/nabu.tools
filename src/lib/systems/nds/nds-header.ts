@@ -5,7 +5,7 @@ import type {
 } from "@/lib/types";
 
 /**
- * Nintendo DS cart-header parsing — shared between all NDS-capable drivers.
+ * NDS cart-header parsing — shared between all NDS-capable drivers.
  *
  * Reference: https://problemkaputt.de/gbatek.htm#dscartridgeheader
  *
@@ -17,8 +17,8 @@ import type {
  *   0x010..0x011   Maker code (2 bytes, A-Z/0-9)
  *   0x014          Capacity (ROM size = 1 << (cap - 3) MiB; typical 4..12)
  *   0x01E          ROM version
- *   0x0C0..0x15B   Nintendo logo (156 bytes, byte-identical on every
- *                  real NDS cart)
+ *   0x0C0..0x15B   Boot logo (156 bytes, byte-identical on every real
+ *                  NDS cart)
  *   0x15C..0x15D   Logo CRC-16/MODBUS (fixed at 0xCF56 on all real carts)
  *   0x15E..0x15F   Header CRC-16/MODBUS (covers bytes 0x000..0x15D)
  *
@@ -36,8 +36,19 @@ const NDS_REGIONS: Record<string, string> = {
   J: "Japan",
   E: "USA",
   P: "Europe",
+  // 'O' is the combined USA + Europe release code — a single ROM that
+  // ships on carts sold in both regions. Verified against the
+  // 2026-04-22 No-Intro DS DAT (4 titles, all labelled "(USA, Europe)").
+  O: "USA, Europe",
   K: "Korea",
   U: "Australia",
+  // 'Z' has no consistent geographic meaning — across the 2026-04-22
+  // No-Intro DS DAT it appears on Nordic / Iberian / Netherlands Europe
+  // sub-releases, US retailer exclusives (Walmart, Toys'R'Us, Target),
+  // and one Canadian SKU. Labelled "Other" rather than mislabelled as
+  // a specific region; the game code is shown alongside so the user
+  // still has the unambiguous identifier.
+  Z: "Other",
   C: "China",
   D: "Germany",
   F: "France",
@@ -52,8 +63,8 @@ const VALID_REGION_CHARS = new Set(
   Object.keys(NDS_REGIONS).map((c) => c.charCodeAt(0)),
 );
 
-/** Fixed CRC-16 of the 156-byte Nintendo logo at 0x0C0..0x15B on every real NDS cart. */
-export const NINTENDO_LOGO_CRC = 0xcf56;
+/** Fixed CRC-16 of the 156-byte boot logo at 0x0C0..0x15B on every real NDS cart. */
+export const BOOT_LOGO_CRC = 0xcf56;
 
 /** Parsed NDS cart header. */
 export interface CardHeader {
@@ -65,6 +76,12 @@ export interface CardHeader {
   romSizeMiB: number;
   /** All three CRC signals matched and gameCode is alphanumeric. */
   validHeader: boolean;
+  /**
+   * Header CRC-16 at 0x15E, set only when `validHeader` is true. Suitable
+   * as a per-cart identity for swap-detection — far more discriminating
+   * than the NTR chip-ID, which only identifies the ROM silicon/density.
+   */
+  headerCrc?: number;
   /** The input buffer was all 0xFF — the cart is a 3DS cart, not an NDS cart. */
   headerAllFF: boolean;
   raw: Uint8Array;
@@ -72,7 +89,7 @@ export interface CardHeader {
 
 /**
  * CRC-16/MODBUS — polynomial 0xA001 (reflected 0x8005), init 0xFFFF,
- * no final XOR. Nintendo uses this variant for both the logo CRC at
+ * no final XOR. NDS carts use this variant for both the logo CRC at
  * 0x15C and the header CRC at 0x15E.
  */
 export function crc16Modbus(buf: Uint8Array): number {
@@ -88,21 +105,23 @@ export function crc16Modbus(buf: Uint8Array): number {
 
 /**
  * Scan the first 64 bytes of `raw` for an offset where a valid NDS
- * header begins. Most drivers read the header cleanly at offset 0 (EMS,
- * GBxCart); some (PowerSaves 3DS) get a short firmware-produced
- * preamble before the real header. Returns -1 if no valid position
- * found.
+ * header begins. Most drivers read the header cleanly at offset 0;
+ * some (PowerSaves 3DS) get a short firmware-produced preamble before
+ * the real header. Returns -1 if no valid position found.
  *
  * Validation signals per candidate offset:
  *   - title bytes (0..11) are printable ASCII or null
  *   - title[0] is alphanumeric (real titles don't start with punctuation)
- *   - title has ≥ 3 alphanumeric characters
  *   - gameCode (0x0C..0x0F) is all alphanumeric
  *   - gameCode[3] is a known NDS region letter
  *   - capacity byte (0x14) is ≤ 0x0F (real carts are 3..12)
  *
  * Together these reject the nondeterministic preamble bytes some
- * firmwares return before the real header.
+ * firmwares return before the real header. Title content past byte 0
+ * is intentionally NOT constrained beyond "printable ASCII or null" —
+ * some legitimate commercial titles are very short (e.g. a 2-character
+ * indie port), and the gameCode/region/capacity checks below already
+ * reject random preambles with high confidence.
  */
 export function findHeaderStart(raw: Uint8Array): number {
   const isAlnum = (b: number) =>
@@ -113,18 +132,14 @@ export function findHeaderStart(raw: Uint8Array): number {
   const limit = Math.min(raw.length - 0x20, 64);
   for (let offset = 0; offset < limit; offset++) {
     let titleOk = true;
-    let titleAlnum = 0;
     for (let i = 0; i < 12; i++) {
-      const b = raw[offset + i];
-      if (!isTitleByte(b)) {
+      if (!isTitleByte(raw[offset + i])) {
         titleOk = false;
         break;
       }
-      if (isAlnum(b)) titleAlnum++;
     }
     if (!titleOk) continue;
     if (!isAlnum(raw[offset])) continue;
-    if (titleAlnum < 3) continue;
 
     let codeOk = true;
     for (let i = 0x0c; i < 0x12; i++) {
@@ -184,11 +199,12 @@ export function parseNDSHeader(
   const makerCode = makerCodes[makerRaw] ?? makerRaw;
   const romVersion = hdr[0x1e];
   const capacity = hdr[0x14];
-  const romSizeMiB = capacity > 3 ? 1 << (capacity - 3) : 0;
+  const romSizeMiB = capacity >= 3 ? 1 << (capacity - 3) : 0;
   const regionChar = gameCode[3] ?? "";
   const region = NDS_REGIONS[regionChar] ?? regionChar;
 
   let validHeader = false;
+  let headerCrc: number | undefined;
   if (hdr.length >= 0x160 && /^[A-Z0-9]{4}$/.test(gameCode)) {
     const storedHeaderCrc = hdr[0x15e] | (hdr[0x15f] << 8);
     const computedHeaderCrc = crc16Modbus(hdr.subarray(0, 0x15e));
@@ -197,7 +213,8 @@ export function parseNDSHeader(
     validHeader =
       storedHeaderCrc === computedHeaderCrc &&
       storedLogoCrc === computedLogoCrc &&
-      computedLogoCrc === NINTENDO_LOGO_CRC;
+      computedLogoCrc === BOOT_LOGO_CRC;
+    if (validHeader) headerCrc = storedHeaderCrc;
   }
 
   return {
@@ -208,19 +225,33 @@ export function parseNDSHeader(
     romVersion,
     romSizeMiB,
     validHeader,
+    headerCrc,
     headerAllFF: false,
     raw,
   };
 }
 
 /**
- * Typed cart metadata returned by NDS drivers. Both the PowerSaves 3DS
- * driver and the EMS NDS Adapter+ driver populate every field — the
- * shape is a firm contract, not "whatever the driver happens to put in
- * the meta bag." The `Record<string, unknown>` intersection keeps
- * `CartridgeInfo<NDSCartMeta>` assignable to the default
- * `CartridgeInfo<Record<string, unknown>>`, so NDSDeviceDriver can
- * widen-return cleanly into the base DeviceDriver interface.
+ * Family the cart belongs to, classified from the chip-ID byte 3 plus
+ * the all-0xFF-header flag:
+ *
+ *   - "3DS": header read returned all 0xFF (cart isn't speaking NDS slot-1
+ *     format at all — almost always a 3DS cart, occasionally a DS cart
+ *     with dirty contacts)
+ *   - "DSi": chip-ID byte 3 has bit 0x40 (DSi-Enhanced flag) set — the
+ *     cart carries the DSi extended header and feature set. Bit 0x80 is
+ *     a separate axis (1T-ROM / NAND silicon vs MROM) and is NOT used
+ *     for this classification.
+ *   - "DS":  everything else
+ */
+export type NDSCartFamily = "DS" | "DSi" | "3DS";
+
+/**
+ * Typed cart metadata returned by NDS drivers. The `Record<string,
+ * unknown>` intersection keeps `CartridgeInfo<NDSCartMeta>` assignable
+ * to the default `CartridgeInfo<Record<string, unknown>>`, so
+ * NDSDeviceDriver can widen-return cleanly into the base DeviceDriver
+ * interface.
  */
 export type NDSCartMeta = Record<string, unknown> & {
   gameCode?: string;
@@ -230,23 +261,117 @@ export type NDSCartMeta = Record<string, unknown> & {
   romSizeMiB?: number;
   /** NDS cart chip ID (NTR opcode 0x90, 4 bytes) as a hex string. */
   chipId?: string;
+  /** Classified cart family (DS / DSi / 3DS). See NDSCartFamily. */
+  cartFamily?: NDSCartFamily;
   /**
    * True if the cart returned an all-0xFF slot-1 header. Usually a 3DS
    * cart (slot-1 format mismatch), but can also indicate an NDS cart
    * with dirty contacts — the driver logs a warning in both cases.
+   * Retained alongside cartFamily so callers can distinguish "3DS cart"
+   * from "DS cart that wouldn't respond" if needed.
    */
   is3DS?: boolean;
+  /** Save chip's JEDEC ID as a 3-byte hex string (e.g. "20 71 12"),
+   *  when the device exposes one. */
+  saveJedec?: string;
+  /** Human-readable save chip name when matched against a chip database. */
+  saveChipName?: string;
+  /** How specific the chip match was. */
+  saveChipSource?: "exact" | "family" | "eeprom-family" | "wrap-probed" | "unknown";
 };
+
+/**
+ * Classify a cart from its 4-byte chip-ID (as a hex string from NDS NTR
+ * opcode 0x90) and the all-0xFF-header signal. Both inputs are
+ * optional: an empty chipId or missing-header signal yields "DS" by
+ * default, which is the right floor when we don't have enough data to
+ * say otherwise.
+ */
+export function classifyNDSCart(opts: {
+  chipIdHex?: string;
+  headerAllFF?: boolean;
+}): NDSCartFamily {
+  if (opts.headerAllFF) return "3DS";
+  const hex = opts.chipIdHex?.replace(/\s+/g, "");
+  if (hex && hex.length >= 8) {
+    const byte3 = parseInt(hex.slice(6, 8), 16);
+    if ((byte3 & 0x40) !== 0) return "DSi";
+  }
+  return "DS";
+}
 
 export type NDSCartridgeInfo = CartridgeInfo<NDSCartMeta>;
 
 /**
+ * Build a fully-populated NDSCartridgeInfo from a parsed header and
+ * a few optional bits of state. Every NDS-capable driver builds
+ * essentially the same struct after detect; this helper centralizes
+ * the mapping so the drivers don't drift.
+ *
+ * - Fields gated on `validHeader`: title, gameCode, makerCode, region,
+ *   romVersion, romSizeMiB. When the header CRC didn't validate we
+ *   keep those undefined so the UI can show "Unrecognized cart"
+ *   rather than parade ASCII garbage.
+ * - cartFamily (DS / DSi / 3DS) is derived from chipIdHex + headerAllFF
+ *   via classifyNDSCart.
+ */
+export function buildNDSCartInfoFromHeader(opts: {
+  header: CardHeader | null;
+  chipIdHex?: string;
+  saveSize?: number;
+  saveType?: string;
+  saveJedec?: string;
+  saveChipName?: string;
+  saveChipSource?: NDSCartMeta["saveChipSource"];
+}): NDSCartridgeInfo {
+  const valid = opts.header?.validHeader ?? false;
+  const headerAllFF = opts.header?.headerAllFF ?? false;
+  const cartFamily = classifyNDSCart({
+    chipIdHex: opts.chipIdHex,
+    headerAllFF,
+  });
+  return {
+    title: valid ? opts.header?.title : undefined,
+    rawHeader: opts.header?.raw,
+    saveSize: opts.saveSize,
+    saveType: opts.saveType,
+    meta: {
+      gameCode: valid ? opts.header?.gameCode : undefined,
+      makerCode: valid ? opts.header?.makerCode : undefined,
+      region: valid ? opts.header?.region : undefined,
+      romVersion: valid ? opts.header?.romVersion : undefined,
+      romSizeMiB: valid ? opts.header?.romSizeMiB : undefined,
+      chipId: opts.chipIdHex || undefined,
+      cartFamily,
+      is3DS: headerAllFF,
+      saveJedec: opts.saveJedec,
+      saveChipName: opts.saveChipName,
+      saveChipSource: opts.saveChipSource,
+    },
+  };
+}
+
+/**
  * Specialization of DeviceDriver for NDS-system drivers. Consumers that
  * need the enriched cart info (scanner hook, wizard UI) should accept
- * this narrower type; it's what replaces the old
- * `driver as unknown as DriverWithCartInfo` pattern.
+ * this narrower type.
  */
 export interface NDSDeviceDriver extends DeviceDriver {
   readonly cartInfo: NDSCartridgeInfo | null;
   detectCartridge(systemId: SystemId): Promise<NDSCartridgeInfo | null>;
+}
+
+/**
+ * Thrown when the connected device cannot dump a particular cart, even
+ * though the cart itself is fine and would dump on a different adapter.
+ * The scanner UI checks for this via `instanceof` to suppress the
+ * generic "unplug and retry" recovery hint — that advice doesn't apply
+ * here; reconnecting won't make the firmware sprout the missing
+ * capability.
+ */
+export class UnsupportedCartError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedCartError";
+  }
 }

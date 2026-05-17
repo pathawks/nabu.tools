@@ -5,13 +5,20 @@ import type {
   VerificationHashes,
   VerificationDB,
 } from "@/lib/types";
-import type {
-  NDSCartridgeInfo,
-  NDSDeviceDriver,
+import {
+  UnsupportedCartError,
+  type NDSCartridgeInfo,
+  type NDSDeviceDriver,
 } from "@/lib/systems/nds/nds-header";
 import { NDSSaveSystemHandler } from "@/lib/systems/nds/nds-save-system-handler";
 
-export type NDSScannerPhase = "idle" | "polling" | "reading" | "done" | "error";
+export type NDSScannerPhase =
+  | "idle"
+  | "detecting"
+  | "no-cart"
+  | "reading"
+  | "done"
+  | "error";
 
 export interface NDSScannerResult {
   data: Uint8Array;
@@ -19,6 +26,7 @@ export interface NDSScannerResult {
   hashes: VerificationHashes;
   cartInfo: NDSCartridgeInfo;
   durationMs: number;
+  warnings: string[];
 }
 
 export function useNDSScanner(
@@ -26,7 +34,7 @@ export function useNDSScanner(
   log: (msg: string, level?: "info" | "warn" | "error") => void,
   nointroDb: VerificationDB | null = null,
 ) {
-  // Read the latest DB through a ref so the polling effect below doesn't
+  // Read the latest DB through a ref so the detect effect below doesn't
   // need to re-run (and interrupt an in-flight dump) when the user loads a
   // DAT mid-session.
   const nointroRef = useRef(nointroDb);
@@ -38,6 +46,11 @@ export function useNDSScanner(
   const [phase, setPhase] = useState<NDSScannerPhase>("idle");
   const [result, setResult] = useState<NDSScannerResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True when the failure is a transient protocol / hardware glitch that
+  // an unplug-and-reconnect might clear; false for hard limitations of
+  // the device against the inserted cart (e.g. PowerSaves vs IR carts)
+  // where reconnecting will produce the exact same error.
+  const [errorRecoverable, setErrorRecoverable] = useState(true);
   const [progress, setProgress] = useState<DumpProgress | null>(null);
   const [cartInfo, setCartInfo] = useState<NDSCartridgeInfo | null>(null);
 
@@ -45,9 +58,10 @@ export function useNDSScanner(
   const [prevDriver, setPrevDriver] = useState(driver);
   if (driver !== prevDriver) {
     setPrevDriver(driver);
-    setPhase(driver ? "polling" : "idle");
+    setPhase(driver ? "detecting" : "idle");
     setResult(null);
     setError(null);
+    setErrorRecoverable(true);
     setCartInfo(null);
   }
 
@@ -56,7 +70,6 @@ export function useNDSScanner(
 
     const abort = new AbortController();
     const { signal } = abort;
-    let timer: ReturnType<typeof setTimeout>;
 
     driver.on("onLog", (msg, level) => log(msg, level));
 
@@ -71,24 +84,13 @@ export function useNDSScanner(
 
     driver.on("onProgress", (p: DumpProgress) => {
       setProgress(p);
-      // The driver learns save type/size during readROM()'s SPI probe — after
+      // The driver learns save type/size during readSave()'s SPI probe — after
       // detectCartridge already set our cartInfo. Pick the enriched info back
       // up on progress so the UI can show it alongside the progress bar.
       if (driver.cartInfo) setCartInfo(enrichWithNoIntro(driver.cartInfo));
     });
 
-    const schedule = (fn: () => Promise<void>, ms: number) => {
-      timer = setTimeout(() => {
-        fn().catch((e) => {
-          if (!signal.aborted) {
-            console.error("[nds-scanner]", e);
-            schedule(pollForCart, 1000);
-          }
-        });
-      }, ms);
-    };
-
-    const pollForCart = async () => {
+    const detectCart = async () => {
       if (signal.aborted) return;
 
       const info = await driver.detectCartridge("nds_save");
@@ -102,7 +104,15 @@ export function useNDSScanner(
         setProgress(null);
         await readSave(enriched);
       } else {
-        schedule(pollForCart, 500);
+        // One-shot detect: no cart, terminal state. Polling was removed
+        // because the supported devices (PowerSaves 3DS, SMS4) require
+        // disconnect-and-reconnect between cartridges anyway — their
+        // firmware can't recover cleanly from aborted mid-operation state.
+        log(
+          "No cartridge detected. Disconnect the adapter, insert a DS " +
+            "cart, and reconnect.",
+        );
+        setPhase("no-cart");
       }
     };
 
@@ -113,10 +123,10 @@ export function useNDSScanner(
           saveSizeBytes: initialInfo.saveSize,
         });
 
-        const saveData = await driver.readROM(config, signal);
+        const saveData = await driver.readSave(config, signal);
         if (signal.aborted) return;
 
-        // After readROM, the driver has full cart info (save size, save type).
+        // After readSave, the driver has full cart info (save size, save type).
         // Re-apply No-Intro enrichment: the driver's cartInfo getter doesn't
         // know about No-Intro, so its title would otherwise overwrite the
         // nicer one we surfaced during reading.
@@ -146,41 +156,38 @@ export function useNDSScanner(
           hashes,
           cartInfo: fullInfo,
           durationMs: Date.now() - startTime,
+          warnings: validation.warnings,
         });
         setPhase("done");
 
-        // Deliberately do NOT resume polling here. Hot-swapping a cart
-        // while the adapter is powered has been observed to leave the
-        // save chip in a state where subsequent driver operations can
-        // issue stray SPI writes, corrupting the next cart's save.
-        // To scan another cartridge, the user must physically disconnect
-        // the adapter from USB and reconnect — that's handled by
-        // rebuilding the scanner with a fresh driver instance.
         log(
-          "Dump complete. Disconnect the adaptor from USB to dump another cartridge.",
+          "Dump complete. Disconnect the adapter from USB to dump another cartridge.",
         );
       } catch (e) {
         if (signal.aborted) return;
         const msg = (e as Error).message;
         log(`Read error: ${msg}`, "error");
         setError(msg);
+        setErrorRecoverable(!(e instanceof UnsupportedCartError));
         setPhase("error");
-        // Do not auto-retry. A stalled dump may have left the adapter in
-        // a state where further operations could write to the cart —
-        // require the user to physically disconnect and reconnect.
       }
     };
 
-    schedule(() => {
-      log("Waiting for cartridge...");
-      return pollForCart();
-    }, 0);
+    log("Detecting cartridge...");
+    detectCart().catch((e) => {
+      if (signal.aborted) return;
+      const msg = (e as Error).message;
+      console.error("[nds-scanner]", e);
+      log(`Detect error: ${msg}`, "error");
+      setError(msg);
+      setErrorRecoverable(true);
+      setPhase("error");
+    });
 
     return () => {
-      clearTimeout(timer);
       abort.abort();
     };
   }, [driver, system, log]);
 
-  return { phase, result, error, progress, cartInfo };
+  return { phase, result, error, errorRecoverable, progress, cartInfo };
 }

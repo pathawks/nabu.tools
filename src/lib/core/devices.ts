@@ -7,13 +7,18 @@ export interface DeviceDef {
   productId: number | null;
   transport: TransportType;
   systems: { id: string; name: string }[];
-  notes: string;
+  /** Known model identifiers, e.g. ["CECHZM1", "SCPH-98042"]. */
+  models?: string[];
+  /** Official homepage / product page, when one still exists. */
+  homepage?: string;
+  /** User-facing prose: 1–2 sentences. What is it, what does it do. */
+  description: string;
 }
 
 export const DEVICES: Record<string, DeviceDef> = {
   GBXCART: {
     id: "GBXCART",
-    name: "GBxCart RW v1.4 Pro",
+    name: "GBxCart RW",
     vendorId: 0x1a86,
     productId: 0x7523,
     transport: "serial",
@@ -22,9 +27,11 @@ export const DEVICES: Record<string, DeviceDef> = {
       { id: "gbc", name: "Game Boy Color" },
       { id: "gba", name: "Game Boy Advance" },
     ],
-    notes:
-      "Open-source by insideGadgets. Uses CH340 serial. " +
-      "Protocol: github.com/lesserkuma/FlashGBX",
+    models: ["v1.4 Pro"],
+    homepage: "https://www.gbxcart.com/",
+    description:
+      "Open-source Game Boy / Game Boy Color / Game Boy Advance cartridge " +
+      "reader by insideGadgets. Uses a CH340 USB-serial chip.",
   },
   POWERSAVE: {
     id: "POWERSAVE",
@@ -33,9 +40,18 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x03d9,
     transport: "webhid",
     systems: [{ id: "amiibo", name: "Amiibo (NTAG215)" }],
-    notes:
-      "Datel NFC portal. Also supports MaxLander/NaMiio clones. " +
-      "Protocol: github.com/malc0mn/amiigo",
+    description: "Datel NFC portal for reading Amiibo (NTAG215) tags.",
+  },
+  POWERSAVE_3DS: {
+    id: "POWERSAVE_3DS",
+    name: "PowerSaves for 3DS",
+    vendorId: 0x1c1a,
+    productId: 0x03d5,
+    transport: "webhid",
+    systems: [{ id: "nds_save", name: "DS (Saves Only)" }],
+    description:
+      "Datel cartridge adapter. Despite the 3DS branding, it backs up " +
+      "DS cartridge saves only — 3DS cartridges are not accessible.",
   },
   EMS_NDS: {
     id: "EMS_NDS",
@@ -43,10 +59,10 @@ export const DEVICES: Record<string, DeviceDef> = {
     vendorId: 0x4670,
     productId: 0x9394,
     transport: "webusb",
-    systems: [{ id: "nds_save", name: "NDS / 3DS (Saves Only)" }],
-    notes:
-      "Save backup/restore only — does NOT dump ROMs. " +
-      "Protocol: github.com/Thulinma/ndsplus",
+    systems: [{ id: "nds_save", name: "DS / 3DS (Saves Only)" }],
+    description:
+      "EMS save backup/restore adaptor for DS / 3DS cartridges. " +
+      "Does not dump ROMs.",
   },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
@@ -55,8 +71,40 @@ export const DEVICES: Record<string, DeviceDef> = {
     productId: 0x0129,
     transport: "webhid",
     systems: [{ id: "disney-infinity", name: "Disney Infinity Figures" }],
-    notes:
-      "Logic3/PDP Wii/Wii U/PS3/PS4/PC base (INF-8032386). " +
-      "Protocol reference: dolphin-emu (GPL-2.0-or-later).",
+    models: ["INF-8032386"],
+    description:
+      "Logic3 / PDP Disney Infinity Base. Reads Disney Infinity figures " +
+      "(Wii / Wii U / PS3 / PS4 / PC variant).",
+  },
+  // The adapter performs an SIO-level identification challenge before
+  // reporting a card type. First-party PS1 cards reply with the expected
+  // ID bytes (0x5A 0x5D) on the first request; multi-page clone cards
+  // often fail to detect on the first try. The driver polls verify-card
+  // a handful of times to give clones a chance to come up
+  // (see Ps3McaDriver.getCardType).
+  PS3_MCA: {
+    id: "PS3_MCA",
+    name: "PS3 Memory Card Adaptor",
+    vendorId: 0x054c,
+    productId: 0x02ea,
+    transport: "webusb",
+    systems: [{ id: "ps1", name: "PS1 Memory Card" }],
+    models: ["CECHZM1", "SCPH-98042"],
+    description:
+      "Sony's PlayStation 3 adapter for PlayStation 1 and 2 memory cards. " +
+      "Only PS1 cards are dumpable in the browser (PS2 reads require " +
+      "MagicGate authentication keys that cannot be redistributed).",
+  },
+  SMS4: {
+    id: "SMS4",
+    name: "Neoflash SMS4",
+    vendorId: 0xffab,
+    productId: 0xdd03,
+    transport: "webusb",
+    systems: [{ id: "nds_save", name: "DS (Saves Only)" }],
+    models: ["NEO NDS SMS4 V6G"],
+    description:
+      "Discontinued Neoflash NDS slot-1 cartridge adapter. Backs up DS " +
+      "cartridge save data via the cart's SPI passthrough.",
   },
 };
