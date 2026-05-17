@@ -112,13 +112,16 @@ export function crc16Modbus(buf: Uint8Array): number {
  * Validation signals per candidate offset:
  *   - title bytes (0..11) are printable ASCII or null
  *   - title[0] is alphanumeric (real titles don't start with punctuation)
- *   - title has ≥ 3 alphanumeric characters
  *   - gameCode (0x0C..0x0F) is all alphanumeric
  *   - gameCode[3] is a known NDS region letter
  *   - capacity byte (0x14) is ≤ 0x0F (real carts are 3..12)
  *
  * Together these reject the nondeterministic preamble bytes some
- * firmwares return before the real header.
+ * firmwares return before the real header. Title content past byte 0
+ * is intentionally NOT constrained beyond "printable ASCII or null" —
+ * some legitimate commercial titles are very short (e.g. a 2-character
+ * indie port), and the gameCode/region/capacity checks below already
+ * reject random preambles with high confidence.
  */
 export function findHeaderStart(raw: Uint8Array): number {
   const isAlnum = (b: number) =>
@@ -129,18 +132,14 @@ export function findHeaderStart(raw: Uint8Array): number {
   const limit = Math.min(raw.length - 0x20, 64);
   for (let offset = 0; offset < limit; offset++) {
     let titleOk = true;
-    let titleAlnum = 0;
     for (let i = 0; i < 12; i++) {
-      const b = raw[offset + i];
-      if (!isTitleByte(b)) {
+      if (!isTitleByte(raw[offset + i])) {
         titleOk = false;
         break;
       }
-      if (isAlnum(b)) titleAlnum++;
     }
     if (!titleOk) continue;
     if (!isAlnum(raw[offset])) continue;
-    if (titleAlnum < 3) continue;
 
     let codeOk = true;
     for (let i = 0x0c; i < 0x12; i++) {
