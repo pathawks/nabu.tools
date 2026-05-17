@@ -1,9 +1,9 @@
 /**
- * EMS NDS Adapter+ — device driver for Nintendo DS/3DS save backup and restore.
+ * EMS NDS Adapter+ — device driver for Nintendo DS / 3DS save backup and
+ * restore.
  *
- * This device can read and write save data from DS/3DS cartridges but
- * cannot dump ROMs. The readROM() method returns save data as the
- * primary output, following the same pattern as the Amiibo driver.
+ * This device can read and write save data from DS / 3DS cartridges but
+ * cannot dump ROMs (readROM throws). Save data flows through readSave.
  *
  * Protocol: github.com/Thulinma/ndsplus
  */
@@ -33,6 +33,7 @@ import {
 import { MAKER_CODES } from "@/lib/systems/nds/nds-maker-codes";
 import {
   parseNDSHeader as parseNDSHeaderShared,
+  buildNDSCartInfoFromHeader,
   type CardHeader,
   type NDSCartridgeInfo,
   type NDSDeviceDriver,
@@ -140,7 +141,7 @@ export class EMSNDSDriver implements NDSDeviceDriver {
    * the cart is removed, so repeated polling is cheap.
    *
    * The ndsplus reference sequence is status → prepare → header → save; by
-   * doing the first three here we let readROM start straight into the save
+   * doing the first three here we let readSave start straight into the save
    * read, with no interleaved commands between header and save.
    */
   async detectCartridge(_systemId: SystemId): Promise<NDSCartridgeInfo | null> {
@@ -204,11 +205,21 @@ export class EMSNDSDriver implements NDSDeviceDriver {
     return this.buildCartInfo();
   }
 
+  async readROM(): Promise<Uint8Array> {
+    throw new Error(
+      "EMS NDS Adaptor Plus: ROM dump is not supported — this device " +
+        "backs up DS / 3DS cartridge saves only.",
+    );
+  }
+
   /**
    * Dump save data. Assumes detectCartridge() has already run prepare + header
    * read (normal scanner flow); falls back to a detect pass if called directly.
    */
-  async readROM(config: ReadConfig, signal?: AbortSignal): Promise<Uint8Array> {
+  async readSave(
+    config: ReadConfig,
+    signal?: AbortSignal,
+  ): Promise<Uint8Array> {
     if (!this.status || !this.header) {
       const info = await this.detectCartridge("nds_save");
       if (!info) throw new Error("No card present");
@@ -225,13 +236,6 @@ export class EMSNDSDriver implements NDSDeviceDriver {
     return saveData;
   }
 
-  async readSave(
-    config: ReadConfig,
-    signal?: AbortSignal,
-  ): Promise<Uint8Array> {
-    return this.readROM(config, signal);
-  }
-
   async writeSave(
     data: Uint8Array,
     config: ReadConfig,
@@ -239,10 +243,10 @@ export class EMSNDSDriver implements NDSDeviceDriver {
   ): Promise<void> {
     if (!this.status) throw new Error("Device not initialized");
 
-    // Skip start-of-write identity check — see readROM for why a getStatus
-    // here would disrupt the save session. The end-of-write verify (after
-    // the readback compare) catches cart-swapped-mid-write and is
-    // non-disruptive since the write session is already done by then.
+    // Skip start-of-write identity check — see verifyCartUnchanged for why
+    // a fresh getStatus here would disrupt the save session. The end-of-write
+    // verify (after the readback compare) catches cart-swapped-mid-write and
+    // is non-disruptive since the write session is already done by then.
 
     const saveSize = this.resolveSaveSize(config);
     this.assertSupportedSave(saveSize);
@@ -601,22 +605,12 @@ export class EMSNDSDriver implements NDSDeviceDriver {
   }
 
   private buildCartInfo(): NDSCartridgeInfo {
-    const valid = this.header?.validHeader ?? false;
-    return {
-      title: valid ? this.header?.title : undefined,
+    return buildNDSCartInfoFromHeader({
+      header: this.header,
+      chipIdHex: this.cardChipId || undefined,
       saveSize: this.status?.saveSize,
       saveType: this.status?.saveTypeName,
-      rawHeader: this.header?.raw,
-      meta: {
-        gameCode: valid ? this.header?.gameCode : undefined,
-        makerCode: valid ? this.header?.makerCode : undefined,
-        region: valid ? this.header?.region : undefined,
-        romVersion: valid ? this.header?.romVersion : undefined,
-        romSizeMiB: valid ? this.header?.romSizeMiB : undefined,
-        chipId: this.cardChipId || undefined,
-        is3DS: this.header?.headerAllFF ?? false,
-      },
-    };
+    });
   }
 
   // ─── Event helpers ────────────────────────────────────────────────────
