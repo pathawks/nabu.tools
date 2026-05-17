@@ -19,3 +19,5 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0129", TAG+="uacc
 SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="02ea", TAG+="uaccess", MODE="0660"
 # SMS4 — Neoflash SMS4
 SUBSYSTEM=="usb", ATTRS{idVendor}=="ffab", ATTRS{idProduct}=="dd03", TAG+="uaccess", MODE="0660"
+# EMS_NDS — EMS NDS Adaptor Plus
+SUBSYSTEM=="usb", ATTRS{idVendor}=="4670", ATTRS{idProduct}=="9394", TAG+="uaccess", MODE="0660"

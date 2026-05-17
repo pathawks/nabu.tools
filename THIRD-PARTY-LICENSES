@@ -3,6 +3,19 @@ open-source projects. Their original license texts are reproduced below.
 
 ================================================================================
 
+ndsplus
+https://github.com/Thulinma/ndsplus
+
+EMS NDS Adapter+ protocol commands, save type detection, and bulk transfer
+sequences in src/lib/drivers/ems-nds/ were derived from the ndsplus Linux
+command-line tool by Thulinma.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
 FlashGBX
 https://github.com/lesserkuma/FlashGBX
 

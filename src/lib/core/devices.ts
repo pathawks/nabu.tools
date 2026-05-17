@@ -53,6 +53,17 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Datel cartridge adapter. Despite the 3DS branding, it backs up " +
       "DS cartridge saves only — 3DS cartridges are not accessible.",
   },
+  EMS_NDS: {
+    id: "EMS_NDS",
+    name: "EMS NDS Adaptor Plus",
+    vendorId: 0x4670,
+    productId: 0x9394,
+    transport: "webusb",
+    systems: [{ id: "nds_save", name: "DS / 3DS (Saves Only)" }],
+    description:
+      "EMS save backup/restore adaptor for DS / 3DS cartridges. " +
+      "Does not dump ROMs.",
+  },
   DISNEY_INFINITY: {
     id: "DISNEY_INFINITY",
     name: "Disney Infinity Base",

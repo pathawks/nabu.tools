@@ -12,6 +12,8 @@ import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
 import { DEVICE_FILTERS as PS3_MCA_FILTERS } from "@/lib/drivers/ps3-mca/ps3-mca-commands";
 import { SMS4Driver } from "@/lib/drivers/sms4/sms4-driver";
 import { DEVICE_FILTERS as SMS4_FILTERS } from "@/lib/drivers/sms4/sms4-commands";
+import { EMSNDSDriver } from "@/lib/drivers/ems-nds/ems-nds-driver";
+import { EMS_NDS_FILTER } from "@/lib/drivers/ems-nds/ems-nds-commands";
 import type {
   DeviceDriver,
   DeviceIdentity,
@@ -94,5 +96,16 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
         ? (t as UsbTransport).connectWithDevice(authorized as USBDevice)
         : (t as UsbTransport).connect(),
     createDriver: (t) => new SMS4Driver(t as UsbTransport),
+  },
+
+  EMS_NDS: {
+    createTransport: () => new UsbTransport([EMS_NDS_FILTER]),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as UsbTransport).connectWithDevice(authorized as USBDevice)
+        : (t as UsbTransport).connect(),
+    createDriver: (t) => new EMSNDSDriver(t as UsbTransport),
+    postInitLog: (info) =>
+      `Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`,
   },
 };
