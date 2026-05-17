@@ -154,16 +154,22 @@ export class SMS4Driver implements NDSDeviceDriver {
     this.log("Session opened (vendor request 0xA3).");
 
     // Liveness probe: 8-byte status response. If the device doesn't
-    // reply here, there's no point trying any cart op.
+    // reply here, there's no point trying any cart op. Status bytes
+    // don't carry a firmware-version field — log them as diagnostic,
+    // not as a version.
     const status = await this.queryStatus();
-    const fwHex = Array.from(status, hex).join(" ");
-    this.log(`Status: ${fwHex}`);
+    this.log(`Status: ${Array.from(status, hex).join(" ")}`);
+
+    // The real device-version marker is the USB descriptor's bcdDevice.
+    // The original Neoflash host software branches behaviour on the
+    // threshold `bcdDevice >= 0x1008`, dubbing the two eras "SP2" and
+    // "pre-SP2". We surface that classification as the firmwareVersion.
+    const bcd = this.transport.getBcdDevice();
+    const firmwareVersion =
+      bcd === null ? "" : bcd >= 0x1008 ? "SP2" : "pre-SP2";
 
     return {
-      // Status bytes don't have a canonical "firmware version" field —
-      // surface the raw hex so the user can flag a mismatch if we ever
-      // need a fw-gate.
-      firmwareVersion: fwHex,
+      firmwareVersion,
       deviceName: this.name,
       capabilities: this.capabilities,
     };

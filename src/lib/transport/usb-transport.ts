@@ -42,6 +42,18 @@ export class UsbTransport implements Transport {
     return this.device?.opened ?? false;
   }
 
+  /** Returns the device's USB descriptor `bcdDevice` as a 16-bit BCD
+   *  number, or null if not connected. Used by drivers whose firmware
+   *  version lives in the USB descriptor rather than in a vendor query. */
+  getBcdDevice(): number | null {
+    if (!this.device) return null;
+    return (
+      (this.device.deviceVersionMajor << 8) |
+      (this.device.deviceVersionMinor << 4) |
+      this.device.deviceVersionSubminor
+    );
+  }
+
   /** Best-effort halt-clear on a bulk endpoint. Used by drivers whose
    *  device firmware can leave a STALL on an endpoint after the host
    *  aborts a transfer mid-flight. */

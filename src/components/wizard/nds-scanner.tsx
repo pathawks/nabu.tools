@@ -53,9 +53,12 @@ export function NDSScanner({
           <span className="text-muted-foreground">
             {deviceInfo.deviceName}
             {deviceInfo.firmwareVersion && (
-              <span className="ml-2 text-muted-foreground/50">
-                fw {deviceInfo.firmwareVersion}
-              </span>
+              <>
+                {" "}
+                <span className="ml-1 text-muted-foreground/50">
+                  {deviceInfo.firmwareVersion}
+                </span>
+              </>
             )}
           </span>
         )}

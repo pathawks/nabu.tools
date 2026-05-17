@@ -445,9 +445,12 @@ function App() {
                     <span className="text-muted-foreground">
                       {connection.deviceInfo.deviceName}
                       {connection.deviceInfo.firmwareVersion && (
-                        <span className="ml-2 text-muted-foreground/50">
-                          fw {connection.deviceInfo.firmwareVersion}
-                        </span>
+                        <>
+                          {" "}
+                          <span className="ml-1 text-muted-foreground/50">
+                            {connection.deviceInfo.firmwareVersion}
+                          </span>
+                        </>
                       )}
                     </span>
                   )}
