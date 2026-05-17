@@ -346,11 +346,19 @@ export interface ParsedProbeResponse {
   jedecConsistent: boolean;
 }
 
+/** Minimum bytes needed to make the `jedecConsistent` check meaningful
+ *  (covers raw[0..7]; familyCode at raw[8] is allowed to be missing —
+ *  defaults to 0 below). Matches PROBE_JEDEC_RESPONSE_LEN on full reads. */
+const PROBE_CONSISTENT_MIN_LEN = 8;
+
 export function parseProbeResponse(raw: Uint8Array): ParsedProbeResponse {
   return {
     jedec: [raw[0] ?? 0, raw[1] ?? 0, raw[2] ?? 0],
     familyCode: raw[8] ?? 0,
     jedecConsistent:
-      raw[0] === raw[5] && raw[1] === raw[6] && raw[2] === raw[7],
+      raw.length >= PROBE_CONSISTENT_MIN_LEN &&
+      raw[0] === raw[5] &&
+      raw[1] === raw[6] &&
+      raw[2] === raw[7],
   };
 }

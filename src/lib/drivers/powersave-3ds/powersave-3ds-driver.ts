@@ -247,7 +247,10 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
     return this.buildCartInfo();
   }
 
-  async readROM(): Promise<Uint8Array> {
+  async readROM(
+    _config: ReadConfig,
+    _signal?: AbortSignal,
+  ): Promise<Uint8Array> {
     throw new Error(
       "PowerSaves 3DS: ROM dump is not supported — this device backs up " +
         "DS cartridge saves only.",

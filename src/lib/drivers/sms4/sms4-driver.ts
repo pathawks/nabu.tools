@@ -197,6 +197,7 @@ export class SMS4Driver implements NDSDeviceDriver {
         this.cartInited = false;
         this.cachedHeader = null;
         this.cachedChipId = "";
+        this.cachedSaveChip = null;
         // Best-effort cart reset so the next attempt isn't fighting a
         // half-initialized cart.
         try {
@@ -235,6 +236,22 @@ export class SMS4Driver implements NDSDeviceDriver {
     const chipIdHex = Array.from(chipId, hex).join(" ");
     this.log(`Chip ID: ${chipIdHex || "(empty)"}`);
 
+    // Short read = the device returned fewer bytes than the 4-byte chip-ID
+    // response should be. Treat it as a comm error (force a full reset next
+    // attempt) — pretending a partial response is a valid chip ID would
+    // mis-route downstream gating on chipId[3].
+    if (chipId.length !== 0 && chipId.length !== CHIP_ID_LEN) {
+      this.log(
+        `Chip ID short read: got ${chipId.length} bytes, expected ${CHIP_ID_LEN}.`,
+        "warn",
+      );
+      this.cartInited = false;
+      this.cachedHeader = null;
+      this.cachedChipId = "";
+      this.cachedSaveChip = null;
+      return null;
+    }
+
     if (isNoCart(chipId)) {
       const why =
         chipId.length === 0
@@ -245,6 +262,7 @@ export class SMS4Driver implements NDSDeviceDriver {
       this.log(why);
       this.cachedHeader = null;
       this.cachedChipId = "";
+      this.cachedSaveChip = null;
       // Force a full reset on the next attempt — if the cart was
       // hot-swapped, the new cart needs its own wake-up cycle.
       this.cartInited = false;
@@ -373,7 +391,10 @@ export class SMS4Driver implements NDSDeviceDriver {
     return this.buildCartInfo();
   }
 
-  async readROM(): Promise<Uint8Array> {
+  async readROM(
+    _config: ReadConfig,
+    _signal?: AbortSignal,
+  ): Promise<Uint8Array> {
     throw new Error(
       "SMS4: ROM dump is not implemented in this build (save preservation only).",
     );
@@ -449,7 +470,11 @@ export class SMS4Driver implements NDSDeviceDriver {
     return result;
   }
 
-  async writeSave(): Promise<void> {
+  async writeSave(
+    _data: Uint8Array,
+    _config: ReadConfig,
+    _signal?: AbortSignal,
+  ): Promise<void> {
     throw new Error("SMS4: save write is not implemented (read-only build).");
   }
 
