@@ -278,24 +278,34 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
           `Card: ${this.header.title} [${this.header.gameCode}] — ${this.header.romSizeMiB} MiB ROM`,
         );
       } else if (this.header.headerAllFF) {
-        // TODO: 3DS save dumping via this SPI path is unconfirmed — we
-        // have no test reports either way. If you have a 3DS cart on
-        // hand, dump it through this branch and report whether the
-        // resulting save file is valid.
-        this.log(
-          "3DS cartridge detected (all-0xFF DS-format header) — dumping " +
-            "save via the SPI path. No DS-format header available.",
-          "warn",
+        // All-0xFF on a DS-format header read is the well-known signature
+        // of a 3DS cart (3DS slot-1 carts use a different header format
+        // entirely and don't respond to the DS NTR 0x00 read). The
+        // PowerSaves 3DS firmware exposes 3DS save dumping only through
+        // the CTR opcode path (CMD.CTR, 0x14) which this driver does not
+        // implement, and the DS-style SPI save path is meaningless for
+        // 3DS carts. Bail rather than write a junk .sav.
+        throw new UnsupportedCartError(
+          "3DS cartridge detected (DS-format header read returned all " +
+            "0xFF, the signature of a 3DS slot-1 cart). This driver " +
+            "implements DS save backup only and cannot dump 3DS saves. " +
+            "Use a 3DS-cart-aware tool (e.g. Datel's PowerSaves software " +
+            "for 3DS save editing) for this cart.",
         );
       } else {
-        // Header returned non-0xFF data that failed CRC validation. The
-        // most likely cause is a 3DS cart returning encrypted bytes on
-        // the DS header-read path. The save chip sits on a separate SPI
-        // bus and doesn't participate in cart-bus encryption, so the
-        // save dump can still work. Could also be a DS cart with dirty
-        // contacts — same recovery: try the dump.
+        // Header returned non-0xFF data that failed CRC validation.
+        // Possible causes, all recoverable in principle: a DS cart with
+        // dirty contacts, a transient cart-bus state from a prior
+        // operation, or a counterfeit cart shipping encrypted bytes on
+        // the unencrypted path. The save chip sits on a separate SPI
+        // bus and doesn't participate in cart-bus state, so the save
+        // dump can still succeed (confirmed in practice — observed a
+        // real ST 512KB FLASH dump complete cleanly after a fully-
+        // zeroed header read on the same cart). Warn and proceed.
         this.log(
-          "Header failed CRC validation — attempting save dump anyway.",
+          "Header failed CRC validation — attempting save dump anyway. " +
+            "If the resulting .sav looks wrong, re-seat the cartridge " +
+            "and dump again.",
           "warn",
         );
       }
