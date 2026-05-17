@@ -556,7 +556,13 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
       );
     }
 
-    if (jedecResp.some((b) => b !== 0x00 && b !== 0xff)) {
+    // FLASH path requires a real JEDEC manufacturer byte. Bytes 0x00 and
+    // 0xFF are both "no chip responded" signals — EEPROMs don't implement
+    // JEDEC at all (the bus stays at its idle level), 0xFF is the idle
+    // level when MISO is pulled high, 0x00 when it's pulled low. Without
+    // this guard, garbage like `00 00 13` would slip past the IR check
+    // above, be misread as FLASH, and dump as a 512 KB image of nothing.
+    if (jedecResp[0] !== 0x00 && jedecResp[0] !== 0xff) {
       const flashSize = flashSizeFromJedec(jedecResp[2]);
       if (!flashSize) {
         throw new Error(
@@ -642,16 +648,18 @@ export class PowerSave3DSDriver implements NDSDeviceDriver {
    * responseLen asks for — and sometimes sends data even when
    * responseLen=0 (opcode 0x02 TEST, for example, always pushes a
    * 64-byte HID report back regardless). Those extra bytes arrive
-   * asynchronously via the HID input listener. If we clear the inbox
-   * at the START of the next command, there's a race: stragglers in
-   * flight may land AFTER our clear, contaminating the new response's
-   * leading bytes as a fake "preamble" that looks like cart data but
-   * isn't.
+   * asynchronously via the HID input listener. If we cleared the
+   * inbox at the START of the next command with no settling delay,
+   * there'd be a race: stragglers in flight could land AFTER our
+   * clear, contaminating the new response's leading bytes as a fake
+   * "preamble" that looks like cart data but isn't.
    *
-   * Fix: drain at both ends. Before sending, wait briefly for any
-   * in-flight stragglers to land, THEN clear. After receiving the
-   * requested bytes, wait briefly again and discard anything extra.
-   * That way the inbox boundary is clean when the next caller starts.
+   * Fix: drain at the start of each call. Yield briefly so any
+   * in-flight stragglers from the previous command land first, THEN
+   * clear the inbox. Anything that arrives after we receive our
+   * requested bytes is left for the next caller's start-of-call
+   * drain to clear — so by the time it actually matters, the boundary
+   * is clean.
    */
   private async sendCommand(
     opcode: number,

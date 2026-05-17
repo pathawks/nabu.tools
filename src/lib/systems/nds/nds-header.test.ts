@@ -3,6 +3,7 @@ import {
   crc16Modbus,
   parseNDSHeader,
   classifyNDSCart,
+  findHeaderStart,
   BOOT_LOGO_CRC,
 } from "./nds-header";
 
@@ -114,6 +115,44 @@ describe("parseNDSHeader", () => {
     const buf = makeHeader();
     const parsed = parseNDSHeader(buf, {});
     expect(parsed.makerCode).toBe("01");
+  });
+});
+
+describe("findHeaderStart", () => {
+  it("returns 0 when the header begins at offset 0", () => {
+    const buf = makeHeader();
+    expect(findHeaderStart(buf)).toBe(0);
+  });
+
+  it("finds the header after a single-byte preamble (PowerSaves observed case)", () => {
+    const buf = makeHeader();
+    const shifted = new Uint8Array(buf.length + 1);
+    shifted[0] = 0x00;
+    shifted.set(buf, 1);
+    expect(findHeaderStart(shifted)).toBe(1);
+  });
+
+  it("finds the header after a multi-byte preamble", () => {
+    const buf = makeHeader();
+    const shifted = new Uint8Array(buf.length + 8);
+    shifted.set([0xff, 0x00, 0xff, 0x00, 0xaa, 0x55, 0xaa, 0x55], 0);
+    shifted.set(buf, 8);
+    expect(findHeaderStart(shifted)).toBe(8);
+  });
+
+  it("returns -1 when no plausible header sits within the scan window", () => {
+    const buf = new Uint8Array(0x200).fill(0xab);
+    expect(findHeaderStart(buf)).toBe(-1);
+  });
+
+  it("returns -1 when the gameCode region letter is unknown", () => {
+    const buf = makeHeader();
+    buf[0x0f] = "Q".charCodeAt(0); // 'Q' is not in NDS_REGIONS
+    // Recompute the header CRC since we modified a covered byte; otherwise
+    // findHeaderStart still finds the offset (it checks region only, not
+    // CRC) but later parseNDSHeader would reject the buffer. We're testing
+    // the region check itself here.
+    expect(findHeaderStart(buf)).toBe(-1);
   });
 });
 

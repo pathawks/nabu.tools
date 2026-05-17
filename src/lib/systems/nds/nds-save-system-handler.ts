@@ -194,8 +194,11 @@ export class NDSSaveSystemHandler implements SystemHandler {
 
     // Uniform-byte check first. If every byte is the same value, the mirror
     // check below would trivially also fire but with less useful wording;
-    // skip it. all-0x00 means the firmware returned zero-padded responses
-    // without ever clocking the chip; all-0xFF means the bus was idle.
+    // skip it. all-0x00 OR all-0xFF can legitimately mean the chip is
+    // blank/erased (FLASH chips ship with 0xFF; some EEPROMs zero on
+    // first power-on) — flag both as ambiguous between "blank" and "bad
+    // read" so the user can re-seat and compare rather than assume the
+    // worst.
     if (data.length > 0 && data.every((b) => b === data[0])) {
       if (data[0] === 0) {
         warnings.push(
@@ -205,8 +208,10 @@ export class NDSSaveSystemHandler implements SystemHandler {
         );
       } else if (data[0] === 0xff) {
         warnings.push(
-          "Dump is all 0xFF — the save chip didn't respond and the bus " +
-            "stayed idle. Re-seat the cartridge and dump again.",
+          "Dump is all 0xFF. The cartridge may have been blank (brand-" +
+            "new FLASH ships erased to 0xFF), the save chip may not have " +
+            "responded and left the bus idle, or the contacts may be " +
+            "dirty. Re-seat the cartridge and dump again to compare.",
         );
       } else {
         warnings.push(
