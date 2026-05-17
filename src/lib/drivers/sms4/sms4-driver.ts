@@ -90,14 +90,15 @@ const RESET_SETTLE_MS = 1000;
 const HEADER_READ_RETRIES = 3;
 
 /**
- * Bytes per `0x60 0xA2` save-read packet. The firmware happily handles any
- * length the 32-bit field in the packet can describe, but smaller chunks
- * give smoother progress updates and bound the worst-case "save half-read,
- * then USB error" window. 256 B is one SPI flash page and a multiple of
- * every M95 EEPROM page (16 / 32 / 64 / 128), so chunks always align with
- * the chip's natural addressing.
+ * Bytes per `0x60 0xA2` save-read packet. The firmware handles any length
+ * the 32-bit field in the packet can describe; chunk size trades USB-
+ * roundtrip overhead (each chunk is bulk-OUT packet + ZLP + bulk-IN = 3
+ * transfers, each ~1 ms of WebUSB overhead) against progress-bar
+ * granularity and the worst-case "save half-read, then USB error" window.
+ * 16 KB is 64 SPI-flash pages and 128 M95 EEPROM pages (page size 128 B),
+ * still a multiple of every M95 page size (16 / 32 / 64 / 128).
  */
-const SAVE_READ_CHUNK = 256;
+const SAVE_READ_CHUNK = 16 * 1024;
 
 /**
  * NDS chip ID byte-3 bit 0x40 (= bit 30 of the LE u32) flags a DSi-
