@@ -123,12 +123,15 @@ export class NDSSaveSystemHandler implements SystemHandler {
   buildOutputFile(rawData: Uint8Array, config: ReadConfig): OutputFile {
     const title = config.params.title as string | undefined;
     const gameCode = config.params.gameCode as string | undefined;
-    // Fall back AFTER sanitization too: a title that's entirely punctuation
-    // or non-ASCII would otherwise sanitize to "" and we'd write ".sav".
+    // Strip only the characters that are actually unsafe across Windows,
+    // Linux, and macOS filesystems — parens, commas, periods, spaces,
+    // apostrophes are all fine and let the filename match the No-Intro
+    // title verbatim. Fall back to a generic name if sanitization wipes
+    // the string (only possible if the title is entirely path-reserved
+    // punctuation).
     const sanitized = (title ?? gameCode ?? "")
-      .replace(/[^a-zA-Z0-9_ -]/g, "")
-      .trim()
-      .replace(/\s+/g, "_");
+      .replace(/[<>:"/\\|?*]/g, "")
+      .trim();
     const basename = sanitized || "nds_save";
 
     return {
