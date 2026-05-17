@@ -25,6 +25,7 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 | PowerSaves for 3DS | WebHID | DS cartridge saves |
 | Disney Infinity Base | WebHID | Disney Infinity Figures |
 | PS3 Memory Card Adaptor | WebUSB | PS1 Memory Card |
+| Neoflash SMS4 | WebUSB | DS cartridge saves |
 
 This is still early. More hardware and more systems are in the works.
 
@@ -84,3 +85,9 @@ derived from [FlashGBX](https://github.com/lesserkuma/FlashGBX),
 
 PowerSaves and Datel are trademarks of Datel Ltd. nabu is not affiliated
 with or endorsed by Datel.
+
+SMS4 and Neoflash are trademarks of their respective owners. nabu is not
+affiliated with or endorsed by Neoflash.
+
+Nintendo, Nintendo DS, and DS are trademarks of Nintendo Co., Ltd. nabu
+is not affiliated with or endorsed by Nintendo.

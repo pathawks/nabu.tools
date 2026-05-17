@@ -84,4 +84,16 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Only PS1 cards are dumpable in the browser (PS2 reads require " +
       "MagicGate authentication keys that cannot be redistributed).",
   },
+  SMS4: {
+    id: "SMS4",
+    name: "Neoflash SMS4",
+    vendorId: 0xffab,
+    productId: 0xdd03,
+    transport: "webusb",
+    systems: [{ id: "nds_save", name: "DS (Saves Only)" }],
+    models: ["NEO NDS SMS4 V6G"],
+    description:
+      "Discontinued Neoflash NDS slot-1 cartridge adapter. Backs up DS " +
+      "cartridge save data via the cart's SPI passthrough.",
+  },
 };

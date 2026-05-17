@@ -272,6 +272,13 @@ export type NDSCartMeta = Record<string, unknown> & {
    * from "DS cart that wouldn't respond" if needed.
    */
   is3DS?: boolean;
+  /** Save chip's JEDEC ID as a 3-byte hex string (e.g. "20 71 12"),
+   *  when the device exposes one. */
+  saveJedec?: string;
+  /** Human-readable save chip name when matched against a chip database. */
+  saveChipName?: string;
+  /** How specific the chip match was. */
+  saveChipSource?: "exact" | "family" | "eeprom-family" | "wrap-probed" | "unknown";
 };
 
 /**
@@ -314,6 +321,9 @@ export function buildNDSCartInfoFromHeader(opts: {
   chipIdHex?: string;
   saveSize?: number;
   saveType?: string;
+  saveJedec?: string;
+  saveChipName?: string;
+  saveChipSource?: NDSCartMeta["saveChipSource"];
 }): NDSCartridgeInfo {
   const valid = opts.header?.validHeader ?? false;
   const headerAllFF = opts.header?.headerAllFF ?? false;
@@ -335,6 +345,9 @@ export function buildNDSCartInfoFromHeader(opts: {
       chipId: opts.chipIdHex || undefined,
       cartFamily,
       is3DS: headerAllFF,
+      saveJedec: opts.saveJedec,
+      saveChipName: opts.saveChipName,
+      saveChipSource: opts.saveChipSource,
     },
   };
 }

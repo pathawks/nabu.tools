@@ -42,6 +42,31 @@ export class UsbTransport implements Transport {
     return this.device?.opened ?? false;
   }
 
+  /** Best-effort halt-clear on a bulk endpoint. Used by drivers whose
+   *  device firmware can leave a STALL on an endpoint after the host
+   *  aborts a transfer mid-flight. */
+  async clearHalt(direction: "in" | "out", endpoint: number): Promise<void> {
+    if (!this.device) throw new Error("USB device not connected");
+    await this.device.clearHalt(direction, endpoint);
+  }
+
+  /** Vendor-class control IN transfer. Returns the response data as a
+   *  Uint8Array (zero-length if the device returned no data stage). */
+  async controlTransferIn(
+    setup: USBControlTransferParameters,
+    length: number,
+  ): Promise<Uint8Array> {
+    if (!this.device) throw new Error("USB device not connected");
+    const result = await this.device.controlTransferIn(setup, length);
+    return result.data
+      ? new Uint8Array(
+          result.data.buffer,
+          result.data.byteOffset,
+          result.data.byteLength,
+        )
+      : new Uint8Array(0);
+  }
+
   /** Prompt the user to select a USB device. */
   async connect(_options?: TransportConnectOptions): Promise<DeviceIdentity> {
     if (!navigator.usb) {

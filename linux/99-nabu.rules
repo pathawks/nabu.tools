@@ -17,3 +17,5 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="1c1a", ATTRS{idProduct}=="03d5", TAG+="uacc
 KERNEL=="hidraw*", ATTRS{idVendor}=="0e6f", ATTRS{idProduct}=="0129", TAG+="uaccess", MODE="0660"
 # PS3_MCA — PS3 Memory Card Adaptor
 SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="02ea", TAG+="uaccess", MODE="0660"
+# SMS4 — Neoflash SMS4
+SUBSYSTEM=="usb", ATTRS{idVendor}=="ffab", ATTRS{idProduct}=="dd03", TAG+="uaccess", MODE="0660"
