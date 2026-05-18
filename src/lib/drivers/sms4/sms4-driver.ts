@@ -68,6 +68,7 @@ import {
 import {
   type ChipIdentification,
   identifyByJedec,
+  KNOWN_JEDEC_MANUFACTURERS,
   parseProbeResponse,
 } from "./sms4-chip-database";
 import { formatBytes } from "@/lib/core/hashing";
@@ -291,67 +292,21 @@ export class SMS4Driver implements NDSDeviceDriver {
       // chip stayed unknown.
       try {
         const probe = await this.probeJedec();
-        const parsed = parseProbeResponse(probe);
-        const chip = identifyByJedec(parsed.jedec, parsed.familyCode);
-        this.cachedSaveChip = chip;
-        const jedecStr = parsed.jedec.map(hex).join(" ").toUpperCase();
-        const familyHex = hex(parsed.familyCode);
-        if (chip.source === "exact") {
+        if (probe.length < PROBE_JEDEC_RESPONSE_LEN) {
+          // Don't trust a parsed JEDEC from a short response — the
+          // parser zero-pads missing bytes, which could fabricate a
+          // plausible-looking chip ID (e.g. `[xx, xx, xx, xx, xx, 0x62,
+          // 0x11]` would parse to `62 11 00` → LE25FW403). Bail out
+          // before identifyByJedec rather than caching a fake match.
           this.log(
-            `Save chip: ${chip.name} (${formatBytes(chip.sizeBytes)}) — ` +
-              `JEDEC ${jedecStr}, family 0x${familyHex} [exact match]`,
+            `Save-chip probe: short response (got ${probe.length} B, ` +
+              `expected ${PROBE_JEDEC_RESPONSE_LEN}). Chip identification ` +
+              `skipped; save dumping is not possible from this probe.`,
+            "warn",
           );
-        } else if (chip.source === "family") {
-          this.log(
-            `Save chip: ${chip.name} — JEDEC ${jedecStr}, family 0x${familyHex} ` +
-              `[inferred from manufacturer + device-type bits; cmd table assumed]`,
-          );
-        } else if (chip.source === "eeprom-family") {
-          // Run wrap-probe to pin down the exact size. Read-only —
-          // can't corrupt the chip.
-          this.log(
-            `Save chip: ${chip.name} — JEDEC ${jedecStr} (M95 family; ` +
-              `no JEDEC RDID), family 0x${familyHex}. ` +
-              `Running wrap-probe to determine exact size...`,
-          );
-          const probed = await this.wrapProbeEepromSize(
-            chip.cmdTable,
-            chip.flag,
-          );
-          if (probed !== null) {
-            this.cachedSaveChip = {
-              ...chip,
-              source: "wrap-probed",
-              sizeBytes: probed,
-              name: "M95 EEPROM",
-            };
-            this.log(
-              `Wrap-probe: chip is ${formatBytes(probed)} — confirmed by ` +
-                `address aliasing at 0x${(probed - 1).toString(16)}.`,
-            );
-          } else {
-            this.log(
-              `Wrap-probe didn't detect aliasing at any standard NDS ` +
-                `EEPROM size (512 B / 8 KB / 64 KB). Chip is larger or ` +
-                `non-standard — this cart isn't currently dumpable with ` +
-                `the SMS4.`,
-              "warn",
-            );
-          }
+          this.cachedSaveChip = null;
         } else {
-          this.log(
-            `Save-chip JEDEC probe: ${jedecStr}, family 0x${familyHex} — ` +
-              `chip not recognized by any family template; this cart ` +
-              `isn't currently dumpable with the SMS4.`,
-            "warn",
-          );
-        }
-        if (!parsed.jedecConsistent) {
-          this.log(
-            "Save-chip probe: firmware's two JEDEC reads disagreed " +
-              "(bytes 0..2 != bytes 5..7) — chip contact may be marginal.",
-            "warn",
-          );
+          await this.handleJedecProbe(probe);
         }
       } catch (e) {
         this.log(
@@ -503,6 +458,209 @@ export class SMS4Driver implements NDSDeviceDriver {
   }
 
   /**
+   * Handle a full-length `60 A0` JEDEC probe response: identify the
+   * save chip from the parsed JEDEC ID, run wrap-probe for M95-family
+   * EEPROMs, and log how the firmware's two internal reads compared.
+   *
+   * Caller must guarantee `probe.length >= PROBE_JEDEC_RESPONSE_LEN`.
+   *
+   * Inconsistent-reads bail-out runs *before* identifyByJedec so a
+   * garbage probe with `familyCode` 0x01/0x02 doesn't trigger an
+   * EEPROM wrap-probe (several hardware reads + a misleading
+   * "wrap-probe succeeded" log line) we'd just discard anyway.
+   */
+  private async handleJedecProbe(probe: Uint8Array): Promise<void> {
+    const parsed = parseProbeResponse(probe);
+
+    // Inconsistent-probe pre-check (a): if the second read's manufacturer
+    // byte isn't plausible, drop the probe before identifyByJedec can
+    // fabricate something from zero-padded or IR-corrupted bytes.
+    if (
+      !parsed.jedecConsistent &&
+      !KNOWN_JEDEC_MANUFACTURERS.has(probe[5]!)
+    ) {
+      this.cachedSaveChip = null;
+      this.log(
+        "Save-chip probe: the second JEDEC read (which the firmware " +
+          "treats as the source of truth) isn't a known manufacturer " +
+          "byte. Chip identification skipped; save dumping is not " +
+          "possible from this probe.",
+        "warn",
+      );
+      return;
+    }
+
+    const chip = identifyByJedec(parsed.jedec, parsed.familyCode);
+
+    // Inconsistent-probe pre-check (b): if the only identification we
+    // got was an EEPROM-family match (driven by familyCode at byte 8)
+    // or no match at all, that's data the disagreement signal already
+    // told us not to trust. Bail before the M95 wrap-probe can issue
+    // hardware reads against a chip table that probably isn't the
+    // actual silicon. (Exact / family matches use bytes 0..2-equivalent
+    // data, which we DO trust on an "ir-cart-pattern" probe — the
+    // second read of the SPI RDID is clean even when the first isn't.)
+    if (
+      !parsed.jedecConsistent &&
+      (chip.source === "eeprom-family" || chip.source === "unknown")
+    ) {
+      this.cachedSaveChip = null;
+      this.log(
+        "Save-chip probe: firmware's two JEDEC reads disagreed and " +
+          `identifyByJedec could only produce a "${chip.source}" ` +
+          "match. The family-code byte may be just as corrupted as " +
+          "the bytes that disagreed; skipping wrap-probe and bailing " +
+          "rather than driving hardware reads through a chip table we " +
+          "can't trust.",
+        "warn",
+      );
+      return;
+    }
+
+    this.cachedSaveChip = chip;
+
+    if (!parsed.jedecConsistent) {
+      this.log(
+        "Save-chip probe: firmware's two JEDEC reads disagreed; the " +
+          "second read identifies a real chip via identifyByJedec so " +
+          "we use it. Common on DS carts with an infrared transceiver " +
+          "on the auxiliary-SPI bus (the IR module fouls the " +
+          "firmware's first read).",
+      );
+
+      // SPI-timing sanity check on IR-pattern carts only. Observed
+      // empirically on a Pokémon B/W-class cart (gameCode IRAO): JEDEC
+      // RDID returns a stable `20 40 13` (M45PE40 / Micron) — but the
+      // chip only responds to Sanyo-style timing (flag 0x0F). The
+      // Micron-flag (0x07) read returns 16 bytes of 0x00 at every
+      // offset. Probe three small reads with the identified flag; if
+      // all are all-zero, try the alternate flag. If THAT produces
+      // any non-zero data, switch.
+      //
+      // Gated to FLASH chips because EEPROMs can legitimately read
+      // all-zero on unused regions, and the M95 family already takes
+      // its own dedicated wrap-probe path.
+      //
+      // Three probe offsets (0, 0x80, 0x100) guard against a save
+      // whose leading bytes are legitimately zero — a real save is
+      // overwhelmingly unlikely to be all-zero across 48 sampled
+      // bytes spread over 256-byte boundaries.
+      //
+      // Read-only — only the SPI READ opcode (cmdTable[1] = 0x03) is
+      // sent; the chip cannot be mutated by this check.
+      if (chip.kind === "FLASH") {
+        const probeOffsets = [0, 0x80, 0x100] as const;
+        const altFlag: 0x07 | 0x0f = chip.flag === 0x07 ? 0x0f : 0x07;
+
+        // Probe BOTH flags and compare. Strict "all-zero" doesn't
+        // survive contact with IR-module bus noise — a stray non-zero
+        // byte in one of the wrong-flag reads would silently disable
+        // the fallback. Counting non-zero bytes across all probes and
+        // comparing relative counts is much more robust: a chip
+        // responding to wrong timing produces ~0 non-zero bytes; a
+        // chip responding to right timing produces many (real save
+        // data has structure).
+        const probe = async (flag: 0x07 | 0x0f): Promise<number> => {
+          let nonZero = 0;
+          for (const off of probeOffsets) {
+            const s = await this.readSavePage(off, 16, chip.cmdTable, flag);
+            nonZero += s.reduce((n, b) => n + (b !== 0 ? 1 : 0), 0);
+          }
+          return nonZero;
+        };
+
+        const primaryNonZero = await probe(chip.flag);
+        const altNonZero = await probe(altFlag);
+
+        // Always log the comparison — gives us visibility into the
+        // chip's actual response on every IR-cart probe.
+        this.log(
+          `SPI timing probe: identified flag 0x${chip.flag.toString(16)} ` +
+            `produced ${primaryNonZero}/48 non-zero bytes; alternate flag ` +
+            `0x${altFlag.toString(16)} produced ${altNonZero}/48 non-zero bytes.`,
+        );
+
+        // Switch criteria: alt has at least 4 non-zero bytes AND more
+        // than twice primary's count. The 4-byte floor guards against
+        // single-byte noise spuriously triggering a switch; the 2x
+        // ratio means we only switch when alt is clearly the better
+        // responder (handles the borderline case where the cart has
+        // sparse data and primary happens to land on a few real bytes).
+        if (altNonZero >= 4 && altNonZero > primaryNonZero * 2) {
+          this.cachedSaveChip = { ...chip, flag: altFlag };
+          this.log(
+            `Switching to flag 0x${altFlag.toString(16)} — the chip's ` +
+              `reported JEDEC ID belongs to a family whose timing it ` +
+              `doesn't actually use (Sanyo-compatible chip with a ` +
+              `Numonyx-style JEDEC, or similar).`,
+          );
+        } else if (primaryNonZero === 0 && altNonZero === 0) {
+          this.log(
+            "Both SPI timings returned all-zero across 3 probe reads. " +
+              "Save dumping will likely produce all zeros — the chip " +
+              "isn't responding to either timing.",
+            "warn",
+          );
+        }
+      }
+
+      // TODO(future): expose a UI-level user override for the SPI flag.
+      // The empirical fallback above handles the only currently-known
+      // case (M45PE40-identified-but-Sanyo-timed), but a manual override
+      // would let users recover from any future chip whose JEDEC lies
+      // about its SPI family without us needing to ship a code change.
+    }
+    const jedecStr = parsed.jedec.map(hex).join(" ").toUpperCase();
+    const familyHex = hex(parsed.familyCode);
+    if (chip.source === "exact") {
+      this.log(
+        `Save chip: ${chip.name} (${formatBytes(chip.sizeBytes)}) — ` +
+          `JEDEC ${jedecStr}, family 0x${familyHex} [exact match]`,
+      );
+    } else if (chip.source === "family") {
+      this.log(
+        `Save chip: ${chip.name} — JEDEC ${jedecStr}, family 0x${familyHex} ` +
+          `[inferred from manufacturer + device-type bits; cmd table assumed]`,
+      );
+    } else if (chip.source === "eeprom-family") {
+      this.log(
+        `Save chip: ${chip.name} — JEDEC ${jedecStr} (M95 family; ` +
+          `no JEDEC RDID), family 0x${familyHex}. ` +
+          `Running wrap-probe to determine exact size...`,
+      );
+      const probed = await this.wrapProbeEepromSize(chip.cmdTable, chip.flag);
+      if (probed !== null) {
+        this.cachedSaveChip = {
+          ...chip,
+          source: "wrap-probed",
+          sizeBytes: probed,
+          name: "M95 EEPROM",
+        };
+        this.log(
+          `Wrap-probe: chip is ${formatBytes(probed)} — confirmed by ` +
+            `address aliasing at 0x${(probed - 1).toString(16)}.`,
+        );
+      } else {
+        this.log(
+          `Wrap-probe didn't detect aliasing at any standard NDS ` +
+            `EEPROM size (512 B / 8 KB / 64 KB). Chip is larger or ` +
+            `non-standard — this cart isn't currently dumpable with ` +
+            `the SMS4.`,
+          "warn",
+        );
+      }
+    } else {
+      this.log(
+        `Save-chip JEDEC probe: ${jedecStr}, family 0x${familyHex} — ` +
+          `chip not recognized by any family template; this cart ` +
+          `isn't currently dumpable with the SMS4.`,
+        "warn",
+      );
+    }
+
+  }
+
+  /**
    * Read `length` bytes from the cart's save chip starting at `address`.
    * Sends a `0x60 0xA2` save-read packet using the supplied chip cmd
    * table; the SMS4 firmware drives the chip's SPI lines accordingly
@@ -568,9 +726,14 @@ export class SMS4Driver implements NDSDeviceDriver {
   /**
    * Probe the cart's save chip via the SMS4 firmware's JEDEC RDID
    * shortcut: send a 32-byte packet with opcode `0x60 0xA0` and
-   * response length 9, the firmware drives SPI to the save chip's
-   * 0x9F (RDID) lines and returns 9 bytes: family code + 3-byte JEDEC
-   * ID + flag bit + padding.
+   * response length 9. The firmware issues the SPI 0x9F (RDID)
+   * transaction twice back-to-back and returns 9 bytes laid out as
+   * JEDEC ID (first read) at bytes 0..2, padding / extended-ID space
+   * at bytes 3..4 (often zero but not guaranteed — observed `01 00`
+   * on a Sanyo IR cart), JEDEC ID (second read) at bytes 5..7, family
+   * code at byte 8. `parseProbeResponse` extracts the chip ID from
+   * bytes 5..7 — see its doc for why the second read is the source
+   * of truth.
    */
   private async probeJedec(): Promise<Uint8Array> {
     const pkt = new Uint8Array(PACKET_LEN);

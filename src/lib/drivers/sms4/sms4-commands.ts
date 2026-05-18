@@ -64,7 +64,13 @@ export const PACKET_LEN = 32;
 export const PACKET_OPCODE = [0x60, 0xa5] as const;
 
 /** Save-chip JEDEC RDID probe lead bytes (0x60 0xA0). Response is 9 bytes:
- *  family code + 3-byte JEDEC ID + flag bit + padding. Byte layout
+ *  JEDEC ID (first read) at bytes 0..2, padding / extended-ID space at
+ *  bytes 3..4 (sometimes zero, sometimes not — observed `01 00` on a
+ *  Sanyo IR cart), JEDEC ID (second read, the source of truth — see
+ *  `parseProbeResponse`) at bytes 5..7, family code at byte 8. The
+ *  firmware re-issues the RDID transaction internally; the second read
+ *  is clean on IR-equipped DS carts where the first is fouled by the
+ *  infrared transceiver on the auxiliary-SPI bus. Byte layout
  *  established empirically against the SMS4 firmware. */
 export const PROBE_JEDEC_OPCODE = [0x60, 0xa0] as const;
 export const PROBE_JEDEC_RESPONSE_LEN = 9;

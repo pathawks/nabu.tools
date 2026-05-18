@@ -332,17 +332,36 @@ export function identifyByJedec(
  *
  * Layout (confirmed empirically with a Numonyx 0x20/0x50 capacity-0x12
  * test cart returning `20 50 12 00 00 20 50 12 03`):
- *   bytes 0..2 — JEDEC ID (manufacturer + device-type + capacity)
+ *   bytes 0..2 — JEDEC ID (first internal read)
  *   bytes 3..4 — padding / extended-ID space (typically 00 00)
- *   bytes 5..7 — JEDEC ID repeated (firmware-internal verification)
+ *   bytes 5..7 — JEDEC ID (second internal read — firmware re-issues
+ *                the SPI RDID transaction)
  *   byte 8     — family code (0x01 / 0x02 / 0x03 / other)
+ *
+ * On most carts the two reads agree. On DS carts that pair the save
+ * chip with an infrared transceiver on the auxiliary-SPI bus, the IR
+ * module corrupts the first read (driving MISO during the RDID setup
+ * window) but the firmware's second read consistently returns the real
+ * chip ID — whatever the firmware does between the two transactions
+ * (CS toggle, settling delay) quiets the IR chip for the second one.
+ *
+ * Source the JEDEC ID from bytes 5..7 for that reason; bytes 0..2 are
+ * retained only for the `jedecConsistent` diagnostic so we can surface
+ * the IR-interference case in the event log.
  */
 export interface ParsedProbeResponse {
   jedec: readonly [number, number, number];
   /** Family code byte. 0x03 = SPI flash with JEDEC (most retail carts). */
   familyCode: number;
-  /** True if bytes 0..2 match bytes 5..7 — sanity check that the
-   *  firmware's two reads agree on the chip ID. */
+  /** True iff `raw.length >= 8` AND the two internal JEDEC reads agree
+   *  (bytes 0..2 match bytes 5..7). False otherwise — either the
+   *  comparison couldn't run (length < 8) or the reads disagreed.
+   *
+   *  Independent of this flag, callers should treat any response
+   *  shorter than `PROBE_JEDEC_RESPONSE_LEN` (= 9) as a failed probe:
+   *  an 8-byte response with agreeing reads will set this flag to true
+   *  but is still missing the familyCode byte. The driver enforces
+   *  this; downstream consumers of `parseProbeResponse` should too. */
   jedecConsistent: boolean;
 }
 
@@ -353,7 +372,7 @@ const PROBE_CONSISTENT_MIN_LEN = 8;
 
 export function parseProbeResponse(raw: Uint8Array): ParsedProbeResponse {
   return {
-    jedec: [raw[0] ?? 0, raw[1] ?? 0, raw[2] ?? 0],
+    jedec: [raw[5] ?? 0, raw[6] ?? 0, raw[7] ?? 0],
     familyCode: raw[8] ?? 0,
     jedecConsistent:
       raw.length >= PROBE_CONSISTENT_MIN_LEN &&
@@ -362,3 +381,25 @@ export function parseProbeResponse(raw: Uint8Array): ParsedProbeResponse {
       raw[2] === raw[7],
   };
 }
+
+/** SPI manufacturer bytes that real DS save chips have been observed
+ *  to return on JEDEC RDID. Used by the driver's probe handler to
+ *  sanity-check the firmware's second internal JEDEC read against a
+ *  plausible-manufacturer set before trusting an identification from
+ *  a probe whose two reads disagreed. Membership here is necessary
+ *  but not sufficient for `identifyByJedec` to produce an exact or
+ *  family match — only the manufacturer byte is checked, not
+ *  device-type or capacity, and the set is broader than
+ *  SAVE_CHIP_FAMILIES (e.g. Adesto 0x1F is plausible but has no
+ *  entry yet). The driver tightens this to "identifyByJedec
+ *  succeeded with an exact or family source" on inconsistent probes
+ *  before allowing the M95 wrap-probe path to run. */
+export const KNOWN_JEDEC_MANUFACTURERS: ReadonlySet<number> = new Set([
+  0x20, // Numonyx / Micron (M25P, M25PE, M45PE families)
+  0x62, // Sanyo (LE25FW family)
+  0xc2, // Macronix
+  0xef, // Winbond
+  0x9d, // ISSI
+  0x1f, // Adesto
+]);
+

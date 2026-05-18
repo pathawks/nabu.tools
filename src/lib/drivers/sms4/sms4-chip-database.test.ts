@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   decodeSpiCapacityByte,
   identifyByJedec,
+  KNOWN_JEDEC_MANUFACTURERS,
   parseProbeResponse,
   SAVE_CHIPS,
 } from "./sms4-chip-database";
@@ -106,11 +107,52 @@ describe("parseProbeResponse", () => {
     expect(parsed.jedecConsistent).toBe(false);
   });
 
+  it("sources jedec from the second read (bytes 5..7), not the first", () => {
+    // On DS carts with an infrared transceiver sharing the auxiliary-SPI
+    // bus, the IR module corrupts the firmware's first JEDEC RDID read
+    // but not the second — the firmware's inter-transaction CS handling
+    // quiets the IR chip before the re-read. Observed on a Sanyo
+    // LE25FW403 IR-equipped cart returning `4f 80 00 01 00 62 11 00 03`:
+    // bytes 0..2 garbage, bytes 5..7 the real `62 11 00`.
+    const raw = new Uint8Array([0x4f, 0x80, 0x00, 0x01, 0x00, 0x62, 0x11, 0x00, 0x03]);
+    const parsed = parseProbeResponse(raw);
+    expect(parsed.jedec).toEqual([0x62, 0x11, 0x00]);
+    expect(parsed.familyCode).toBe(0x03);
+    expect(parsed.jedecConsistent).toBe(false);
+  });
+
   it("doesn't crash on a short response — missing bytes read as 0", () => {
     const parsed = parseProbeResponse(new Uint8Array([0x20, 0x50, 0x12]));
-    expect(parsed.jedec).toEqual([0x20, 0x50, 0x12]);
+    expect(parsed.jedec).toEqual([0x00, 0x00, 0x00]);
     expect(parsed.familyCode).toBe(0);
     expect(parsed.jedecConsistent).toBe(false);
+  });
+});
+
+describe("KNOWN_JEDEC_MANUFACTURERS", () => {
+  it("includes the manufacturers actually present in SAVE_CHIPS", () => {
+    const mfrsInDb = new Set(
+      SAVE_CHIPS.filter((c) => c.jedecId).map((c) => c.jedecId![0]),
+    );
+    for (const m of mfrsInDb) {
+      expect(KNOWN_JEDEC_MANUFACTURERS.has(m)).toBe(true);
+    }
+  });
+});
+
+describe("parseProbeResponse → identifyByJedec end-to-end", () => {
+  it("identifies an IR-cart probe response as the real Sanyo chip", () => {
+    // Full pipeline: a Pokémon HG/SS-class cart's `60 A0` response goes
+    // through parseProbeResponse → identifyByJedec → "LE25FW403", not
+    // "Unknown chip from the IR-module garbage in bytes 0..2".
+    const raw = new Uint8Array([0x4f, 0x80, 0x00, 0x01, 0x00, 0x62, 0x11, 0x00, 0x03]);
+    const parsed = parseProbeResponse(raw);
+    const chip = identifyByJedec(parsed.jedec, parsed.familyCode);
+    expect(chip.source).toBe("exact");
+    expect(chip.name).toBe("LE25FW403");
+    expect(chip.kind).toBe("FLASH");
+    expect(chip.sizeBytes).toBe(512 * 1024);
+    expect(chip.flag).toBe(0x0f);
   });
 });
 
