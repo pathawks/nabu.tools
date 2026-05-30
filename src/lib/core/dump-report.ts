@@ -41,7 +41,10 @@ export function generateDumpReport(ctx: DumpReportContext): string {
   field("Software:", "nabu");
   field("Dump Time:", new Date().toISOString());
   const seconds = (durationMs / 1000).toFixed(1);
-  const rate = h.size > 0 ? formatBytes(Math.round(h.size / (durationMs / 1000))) + "/s" : "";
+  const rate =
+    h.size > 0 && durationMs > 0
+      ? formatBytes(Math.round(h.size / (durationMs / 1000))) + "/s"
+      : "";
   field("Time Elapsed:", `${seconds}s (${rate})`);
 
   // Dumping Settings

@@ -25,6 +25,15 @@ const RULES_FILE_URL =
 
 const RELOAD_COMMANDS = `sudo udevadm control --reload-rules && sudo udevadm trigger`;
 
+/** Host portion of a URL, falling back to the raw string if it won't parse. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 interface DeviceInfoDialogProps {
   device: DeviceDef;
 }
@@ -80,7 +89,7 @@ export function DeviceInfoDialog({ device }: DeviceInfoDialogProps) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 underline underline-offset-3 hover:text-foreground"
               >
-                {new URL(device.homepage).host}
+                {hostOf(device.homepage)}
                 <ExternalLink className="size-3" />
               </a>
             </DetailRow>
