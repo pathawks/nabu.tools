@@ -54,7 +54,11 @@ export async function saveFile(
     await writable.write(data);
     await writable.close();
   } else {
-    const blob = new Blob([data.slice()], { type: "application/octet-stream" });
+    // `data` is a valid BlobPart; the cast sidesteps a TS6 ArrayBufferLike-vs-
+    // ArrayBuffer variance false-positive without copying the bytes.
+    const blob = new Blob([data as BlobPart], {
+      type: "application/octet-stream",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
