@@ -54,16 +54,26 @@ export class DumpJobImpl {
       this.setState("dumping_rom");
       const rawData = await this.driver.readROM(readConfig, signal);
 
-      // Dump save if requested
+      // Dump save if requested. The ROM is already in hand, so a save-read
+      // failure is logged and the dump finishes ROM-only rather than throwing
+      // away a good ROM. An abort still propagates to the outer handler.
       let saveFile;
       if (values.backupSave) {
         this.setState("dumping_save");
-        const saveData = await this.driver.readSave(readConfig, signal);
-        saveFile = {
-          data: saveData,
-          filename: `dump.sav`,
-          mimeType: "application/octet-stream",
-        };
+        try {
+          const saveData = await this.driver.readSave(readConfig, signal);
+          saveFile = {
+            data: saveData,
+            filename: `dump.sav`,
+            mimeType: "application/octet-stream",
+          };
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          this.log(
+            `Save backup failed, keeping ROM only: ${(error as Error).message}`,
+            "warn",
+          );
+        }
       }
 
       // Hash, verify, then build output (verify may trim the ROM)

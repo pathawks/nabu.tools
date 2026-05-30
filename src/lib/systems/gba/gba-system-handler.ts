@@ -22,24 +22,6 @@ const GBA_ROM_SIZES = [
   32 * 1024 * 1024,  // 32 MB
 ];
 
-const GBA_SAVE_TYPES = [
-  { value: "none", label: "None" },
-  { value: "sram_32k", label: "SRAM (32 KB)" },
-  { value: "flash_64k", label: "Flash (64 KB)" },
-  { value: "flash_128k", label: "Flash (128 KB)" },
-  { value: "eeprom_512", label: "EEPROM (512 B)" },
-  { value: "eeprom_8k", label: "EEPROM (8 KB)" },
-];
-
-const SAVE_TYPE_SIZES: Record<string, number> = {
-  none: 0,
-  sram_32k: 32 * 1024,
-  flash_64k: 64 * 1024,
-  flash_128k: 128 * 1024,
-  eeprom_512: 512,
-  eeprom_8k: 8 * 1024,
-};
-
 export class GBASystemHandler implements SystemHandler {
   readonly systemId = "gba" as const;
   readonly displayName = "Game Boy Advance";
@@ -63,30 +45,6 @@ export class GBASystemHandler implements SystemHandler {
       group: "options",
       order: 0,
     });
-
-    const saveType = (currentValues.saveType as string) ?? autoDetected?.saveType ?? "none";
-    fields.push({
-      key: "saveType",
-      label: "Save Type",
-      type: detected && autoDetected?.saveType ? "readonly" : "select",
-      value: saveType,
-      autoDetected: detected && autoDetected?.saveType != null,
-      options: GBA_SAVE_TYPES,
-      group: "options",
-      order: 1,
-    });
-
-    if (saveType !== "none") {
-      fields.push({
-        key: "backupSave",
-        label: "Backup save data",
-        type: "checkbox",
-        value: (currentValues.backupSave as boolean) ?? true,
-        group: "options",
-        order: 2,
-        helpText: `${formatBytes(SAVE_TYPE_SIZES[saveType] ?? 0)} ${saveType.replace("_", " ")}`,
-      });
-    }
 
     if (detected && autoDetected.title) {
       fields.push({
@@ -129,14 +87,10 @@ export class GBASystemHandler implements SystemHandler {
   }
 
   buildReadConfig(values: ConfigValues): ReadConfig {
-    const saveType = (values.saveType as string) ?? "none";
     return {
       systemId: "gba",
       params: {
         romSizeBytes: values.romSizeBytes as number,
-        saveType,
-        saveSizeBytes: values.backupSave ? (SAVE_TYPE_SIZES[saveType] ?? 0) : 0,
-        backupSave: (values.backupSave as boolean) ?? false,
       },
     };
   }

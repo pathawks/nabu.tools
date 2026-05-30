@@ -42,11 +42,8 @@ export class GBxCartDriver implements DeviceDriver {
       operations: ["dump_rom", "dump_save"],
       autoDetect: true,
     },
-    {
-      systemId: "gba",
-      operations: ["dump_rom", "dump_save"],
-      autoDetect: true,
-    },
+    // GBA save reading isn't implemented yet, so only ROM dumping is offered.
+    { systemId: "gba", operations: ["dump_rom"], autoDetect: true },
   ];
 
   transport: SerialTransport;
