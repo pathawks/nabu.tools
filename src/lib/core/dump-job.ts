@@ -53,6 +53,10 @@ export class DumpJobImpl {
       // Dump ROM
       this.setState("dumping_rom");
       const rawData = await this.driver.readROM(readConfig, signal);
+      // Cancellation can land after a phase resolves but before the next one
+      // begins (drivers only poll the signal mid-transfer). Re-check at each
+      // boundary so a late abort is reported as aborted, not completed.
+      signal?.throwIfAborted();
 
       // Dump save if requested. The ROM is already in hand, so a save-read
       // failure is logged and the dump finishes ROM-only rather than throwing
@@ -76,6 +80,8 @@ export class DumpJobImpl {
         }
       }
 
+      signal?.throwIfAborted();
+
       // Hash, verify, then build output (verify may trim the ROM)
       this.setState("hashing");
       const hashes = await this.system.computeHashes(rawData);
@@ -97,6 +103,7 @@ export class DumpJobImpl {
         durationMs: Date.now() - startTime,
       };
 
+      signal?.throwIfAborted();
       this.setState("complete");
       this.events.onComplete?.(result);
       return result;
