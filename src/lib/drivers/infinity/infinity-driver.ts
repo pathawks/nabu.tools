@@ -198,10 +198,21 @@ export class InfinityDriver implements DeviceDriver {
     u: number = 0,
   ): Promise<Uint8Array> {
     const resp = await this.sendCmd(CMD.READ_BLOCK, [order, block, u]);
-    // First payload byte is a status byte (0x00 on success); next 16 bytes are the block.
+    // The portal replies with a status byte (0x00 = success) followed by the
+    // 16-byte block. Each shape is rejected loudly: an empty reply would crash
+    // the error formatter, and a short success reply would let buildFigureFile
+    // zero-pad a corrupt block into the figure file.
+    if (resp.payload.length === 0) {
+      throw new Error("Portal returned an empty READ_BLOCK reply");
+    }
     if (resp.payload[0] !== 0x00) {
       throw new Error(
         `Portal error 0x${resp.payload[0].toString(16).padStart(2, "0")}`,
+      );
+    }
+    if (resp.payload.length < 17) {
+      throw new Error(
+        `Portal returned a short block (${resp.payload.length} bytes)`,
       );
     }
     return resp.payload.slice(1, 17);
