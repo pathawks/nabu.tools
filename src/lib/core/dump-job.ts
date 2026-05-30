@@ -88,12 +88,26 @@ export class DumpJobImpl {
       this.log(`CRC32: ${hashes.crc32.toString(16).toUpperCase().padStart(8, "0")}  SHA-1: ${hashes.sha1}`);
 
       this.setState("verifying");
-      const verification = this.system.verify(hashes, this.verificationDb);
+      const verification = await this.system.verify(
+        hashes,
+        this.verificationDb,
+        rawData,
+      );
       if (verification.matched && verification.entry) {
         this.log(`Verified: ${verification.entry.name}`);
       }
 
-      const outputFile = this.system.buildOutputFile(rawData, readConfig);
+      // Device- and mapper-agnostic heuristics over the raw bytes (e.g.
+      // PRG banks identical to bank 0). Informational only — surface them
+      // in the event log; never fail the dump.
+      const notes = this.system.analyzeDump?.(rawData, readConfig) ?? [];
+      for (const note of notes) this.log(note, "warn");
+
+      const outputFile = this.system.buildOutputFile(
+        rawData,
+        readConfig,
+        verification,
+      );
 
       const result: DumpResult = {
         rom: outputFile,

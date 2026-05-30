@@ -146,24 +146,25 @@ export class NoIntroVerificationDB implements VerificationDB {
     // Try SHA-1 first (works for non-headered systems)
     const sha1Key = hashes.sha1.toLowerCase();
     const entry = this.bySha1.get(sha1Key);
-    if (entry) {
-      return {
-        name: entry.gameName,
-        status: entry.status === "verified" ? "verified" : "unknown",
-      };
-    }
+    if (entry) return this.toVerificationEntry(entry);
 
-    // Fall back to CRC32 (works for headered systems after stripping)
+    // Fall back to CRC32 (works for headered systems after stripping —
+    // the SystemHandler may then promote to "exact" via canonical-header
+    // SHA-1 using `entry.header` and `entry.sha1`).
     const crcKey = hashes.crc32.toString(16).padStart(8, "0").toLowerCase();
     const crcEntry = this.byCrc.get(crcKey);
-    if (crcEntry) {
-      return {
-        name: crcEntry.gameName,
-        status: crcEntry.status === "verified" ? "verified" : "unknown",
-      };
-    }
+    if (crcEntry) return this.toVerificationEntry(crcEntry);
 
     return null;
+  }
+
+  private toVerificationEntry(entry: NoIntroEntry): VerificationEntry {
+    return {
+      name: entry.gameName,
+      status: entry.status === "verified" ? "verified" : "unknown",
+      header: entry.header,
+      sha1: entry.sha1,
+    };
   }
 
   /** Look up ROM by game code (serial). Returns name + size, or null. */

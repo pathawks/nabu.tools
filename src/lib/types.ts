@@ -56,6 +56,7 @@ export type SystemId =
   | "gb"
   | "gbc"
   | "gba"
+  | "nes"
   | "amiibo"
   | "nds_save"
   | string;
@@ -176,14 +177,42 @@ export interface SystemHandler {
   estimateDumpSize?(values: ConfigValues): number;
   validate(values: ConfigValues): ValidationResult;
   buildReadConfig(values: ConfigValues): ReadConfig;
-  buildOutputFile(rawData: Uint8Array, config: ReadConfig): OutputFile;
+  /**
+   * Build the final output file. When `verification` carries a matched
+   * `entry.header`, headered systems should prefer that canonical header
+   * byte-for-byte over their own computed header — keeping the output
+   * bit-identical to the No-Intro DAT entry rather than relying on our
+   * defaults for the bits the cart can't self-report (TV system,
+   * expansion device, submapper, etc.).
+   */
+  buildOutputFile(
+    rawData: Uint8Array,
+    config: ReadConfig,
+    verification?: VerificationResult,
+  ): OutputFile;
   computeHashes(rawData: Uint8Array): Promise<VerificationHashes>;
   verify(
     hashes: VerificationHashes,
     db: VerificationDB | null,
-  ): VerificationResult;
+    /**
+     * Unheadered ROM bytes (what `computeHashes` ran over). Headered
+     * systems splice the canonical iNES header from a DAT entry onto the
+     * content and confirm SHA-1, decoupling our output file's header
+     * format from No-Intro's canonical form. May resolve asynchronously.
+     */
+    content?: Uint8Array,
+  ): VerificationResult | Promise<VerificationResult>;
   /** Optional: extract a human-readable summary of a completed dump's contents. */
   summarizeDump?(rawData: Uint8Array): DumpSummary | null;
+  /**
+   * Optional: post-dump heuristic checks over the unheadered raw bytes
+   * that apply regardless of which device or mapper produced them — e.g.
+   * PRG banks that came back byte-identical to bank 0, the signature of a
+   * bank-switch latch failure. Returns human-readable notes; an empty
+   * array (or an omitted method) means nothing to flag. Surfaced in the
+   * event log, not as a blocking error.
+   */
+  analyzeDump?(content: Uint8Array, config: ReadConfig): string[];
 }
 
 /** A single cell in a {@link DumpSummary} row — text or a small bitmap (e.g. PS1 save icon). */
@@ -303,6 +332,20 @@ export interface VerificationEntry {
   region?: string;
   languages?: string[];
   status: "verified" | "alt" | "bad" | "unknown";
+  /**
+   * Canonical iNES/etc. header bytes for headered systems (NES). When
+   * the DAT publishes per-entry headers and the SystemHandler hashes
+   * unheadered content, this lets `verify()` splice the canonical
+   * header back on to confirm SHA-1 — decoupling our output's header
+   * form from the DAT's canonical form.
+   */
+  header?: number[];
+  /**
+   * Original SHA-1 from the DAT. For headered systems this is the
+   * SHA-1 over `header || content`. For non-headered systems it's the
+   * SHA-1 over the raw file (same thing the SystemHandler computes).
+   */
+  sha1?: string;
 }
 
 export interface VerificationResult {

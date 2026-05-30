@@ -12,6 +12,8 @@ import { Ps3McaDriver } from "@/lib/drivers/ps3-mca/ps3-mca-driver";
 import { DEVICE_FILTERS as PS3_MCA_FILTERS } from "@/lib/drivers/ps3-mca/ps3-mca-commands";
 import { SMS4Driver } from "@/lib/drivers/sms4/sms4-driver";
 import { DEVICE_FILTERS as SMS4_FILTERS } from "@/lib/drivers/sms4/sms4-commands";
+import { InlTransport } from "@/lib/drivers/inl/inl-transport";
+import { INLDriver } from "@/lib/drivers/inl/inl-driver";
 import type {
   DeviceDriver,
   DeviceIdentity,
@@ -46,6 +48,17 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
     createDriver: (t) => new GBxCartDriver(t as SerialTransport),
     postInitLog: (info) =>
       `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, ${info.hardwareRevision})`,
+  },
+
+  INL_RETRO: {
+    createTransport: () => new InlTransport(),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as InlTransport).connectWithDevice(authorized as USBDevice)
+        : (t as InlTransport).connect(),
+    createDriver: (t) => new INLDriver(t as InlTransport),
+    postInitLog: (info) =>
+      `Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`,
   },
 
   POWERSAVE: {

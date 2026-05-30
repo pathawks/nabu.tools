@@ -191,8 +191,12 @@ export function ConfigureStep({
               {[...groups.entries()].map(([groupKey, groupFields]) => {
                 // Two-column grid for compact field groups
                 if (groupKey === "rom_sizes" || groupKey === "cartridge") {
+                  // Three fields (e.g. NES mapper + PRG + CHR) sit on one
+                  // row; other compact groups stay two-up.
+                  const colsClass =
+                    groupFields.length === 3 ? "grid-cols-3" : "grid-cols-2";
                   return (
-                    <div key={groupKey} className="grid grid-cols-2 gap-3">
+                    <div key={groupKey} className={`grid ${colsClass} gap-3`}>
                       {groupFields.map((field) => (
                         <ConfigField
                           key={field.key}

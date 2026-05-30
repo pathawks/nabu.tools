@@ -16,6 +16,7 @@ import { useConnection } from "@/hooks/use-connection";
 import { DatabasePanel } from "@/components/shared/database-panel";
 import { GBSystemHandler } from "@/lib/systems/gb/gb-system-handler";
 import { GBASystemHandler } from "@/lib/systems/gba/gba-system-handler";
+import { NESSystemHandler } from "@/lib/systems/nes/nes-system-handler";
 import { Ps1SystemHandler } from "@/lib/systems/ps1/ps1-system-handler";
 import { NOINTRO_SYSTEM_NAMES } from "@/lib/core/nointro";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
@@ -38,6 +39,7 @@ const ALL_SYSTEMS: SystemHandler[] = [
   new GBSystemHandler("gb"),
   new GBSystemHandler("gbc"),
   new GBASystemHandler(),
+  new NESSystemHandler(),
   new Ps1SystemHandler(),
 ];
 

@@ -33,6 +33,17 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Open-source Game Boy / Game Boy Color / Game Boy Advance cartridge " +
       "reader by insideGadgets. Uses a CH340 USB-serial chip.",
   },
+  INL_RETRO: {
+    id: "INL_RETRO",
+    name: "INL Retro Programmer",
+    vendorId: 0x16c0,
+    productId: 0x05dc,
+    transport: "webusb",
+    systems: [{ id: "nes", name: "NES / Famicom" }],
+    description:
+      "Open-source NES/Famicom cartridge dumper by Infinite NES Lives. " +
+      "Protocol: gitlab.com/InfiniteNesLives/INL-retro-progdump",
+  },
   POWERSAVE: {
     id: "POWERSAVE",
     name: "PowerSaves for Amiibo",
