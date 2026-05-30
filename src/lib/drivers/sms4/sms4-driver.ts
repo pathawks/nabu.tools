@@ -642,10 +642,9 @@ export class SMS4Driver implements NDSDeviceDriver {
         );
       } else {
         this.log(
-          `Wrap-probe didn't detect aliasing at any standard NDS ` +
-            `EEPROM size (512 B / 8 KB / 64 KB). Chip is larger or ` +
-            `non-standard — this cart isn't currently dumpable with ` +
-            `the SMS4.`,
+          `Wrap-probe couldn't determine the chip size (no aliasing at ` +
+            `any known M95 capacity, or the probed region is blank). This ` +
+            `cart isn't currently dumpable with the SMS4.`,
           "warn",
         );
       }
@@ -680,18 +679,20 @@ export class SMS4Driver implements NDSDeviceDriver {
   /**
    * Wrap-probe to determine the exact size of an M95-family EEPROM.
    *
-   * Mechanism: M95 chips have an SPI address bus only as wide as their
-   * actual capacity. Reading at offset `sz - 1` on a chip of exactly
-   * `sz` bytes returns chip[sz-1] then bytes that wrap to chip[0..],
-   * because higher address bits are ignored. We read 16 bytes at 0 as
-   * a "base", then 16 bytes at each candidate `sz - 1` and check
-   * whether bytes 1..15 match base[0..14]. The match identifies the
-   * exact chip size with high confidence (false-positive odds: 1 in
-   * 2^120 if save data is random; even less for sparse 0xFF saves).
+   * M95 chips have an address bus only as wide as their capacity, so a
+   * read that straddles the end wraps back to offset 0: on a chip of
+   * exactly `sz` bytes, chip[sz + i] === chip[i]. We read a 16-byte
+   * "base" window at offset 0, then 16 bytes at each candidate `sz - 1`,
+   * and treat bytes 1..15 matching base[0..14] as a wrap.
+   *
+   * Aliasing is only detectable against data that varies: an erased
+   * (all-0xFF) region wraps at every candidate and would mis-size a blank
+   * chip as the smallest one, so we bail when the base window is uniform.
    *
    * Pure reads — never writes. Cannot corrupt the chip.
    *
-   * Returns the detected size in bytes, or null if no aliasing matched.
+   * Returns the detected size in bytes, or null if it couldn't be
+   * determined (uniform base, short read, or no aliasing matched).
    */
   private async wrapProbeEepromSize(
     cmdTable: readonly number[],
@@ -705,20 +706,26 @@ export class SMS4Driver implements NDSDeviceDriver {
       );
       return null;
     }
-    // Standard NDS EEPROM sizes: 4 Kbit (512 B), 64 Kbit (8 KB),
-    // 512 Kbit (64 KB).
-    const candidates = [0x200, 0x2000, 0x10000];
+
+    // Bytes 0..14 are what the wrap test compares against. If they don't
+    // vary, every candidate aliases and the match would be meaningless.
+    const window = base.subarray(0, 15);
+    if (window.every((b) => b === window[0])) {
+      this.log(
+        `Wrap-probe: first bytes are uniform (0x${hex(base[0])}) — size ` +
+          `can't be determined by aliasing; the chip may be blank.`,
+        "warn",
+      );
+      return null;
+    }
+
+    // Every M95 capacity in SAVE_CHIPS, smallest first.
+    const candidates = [0x200, 0x400, 0x4000, 0x8000, 0x10000, 0x20000];
     for (const sz of candidates) {
       const r = await this.readSavePage(sz - 1, 16, cmdTable, flag);
       if (r.length < 16) continue;
-      let wraps = true;
-      for (let i = 0; i < 15; i++) {
-        if (r[i + 1] !== base[i]) {
-          wraps = false;
-          break;
-        }
-      }
-      if (wraps) return sz;
+      // chip[sz + i] === chip[i]  ⇒  r[1..15] === base[0..14].
+      if (window.every((b, i) => b === r[i + 1])) return sz;
     }
     return null;
   }
