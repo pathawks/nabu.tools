@@ -183,6 +183,19 @@ function signatureHex(sig: Uint8Array): string {
   return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// A scanned tag's NDEF URI is untrusted, so only render it as a clickable
+// link when its scheme is one of these — otherwise a `javascript:`/`data:`
+// URI would execute in the app's origin on click.
+const SAFE_URL_SCHEMES = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+function safeHref(value: string): string | null {
+  try {
+    return SAFE_URL_SCHEMES.has(new URL(value).protocol) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function InfoRow({
   label,
   value,
@@ -198,14 +211,15 @@ function InfoRow({
   link?: boolean;
   truncate?: boolean;
 }) {
+  const href = link ? safeHref(value) : null;
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="w-24 shrink-0 text-[10px] uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
-      {link ? (
+      {href ? (
         <a
-          href={value}
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
           className="truncate text-primary underline underline-offset-2"
