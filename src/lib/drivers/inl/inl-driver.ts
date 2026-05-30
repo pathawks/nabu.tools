@@ -25,7 +25,9 @@ import { InlNesBus } from "./inl-nes-bus";
 import { detectCiramMirroring } from "./detect-mirroring";
 import { nrom } from "@/lib/systems/nes/mappers/nrom";
 import { mmc1 } from "@/lib/systems/nes/mappers/mmc1";
+import { uxrom } from "@/lib/systems/nes/mappers/uxrom";
 import { mmc3 } from "@/lib/systems/nes/mappers/mmc3";
+import { axrom } from "@/lib/systems/nes/mappers/axrom";
 import { colorDreams } from "@/lib/systems/nes/mappers/color-dreams";
 import { gxrom } from "@/lib/systems/nes/mappers/gxrom";
 import type { NesMapper } from "@/lib/systems/nes/mappers/types";
@@ -43,7 +45,9 @@ import type { NesMapper } from "@/lib/systems/nes/mappers/types";
 const MAPPERS: Record<number, NesMapper> = {
   0: nrom,
   1: mmc1,
+  2: uxrom,
   4: mmc3,
+  7: axrom,
   11: colorDreams,
   66: gxrom,
 };

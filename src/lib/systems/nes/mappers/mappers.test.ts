@@ -3,7 +3,10 @@ import type { NesBus } from "../bus";
 import { bytesEqual } from "./bank-reliability";
 import { nrom } from "./nrom";
 import { mmc1 } from "./mmc1";
+import { uxrom } from "./uxrom";
+import { cnrom } from "./cnrom";
 import { mmc3 } from "./mmc3";
+import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
 
@@ -388,5 +391,191 @@ describe("Color Dreams (mapper 11)", () => {
     const chr = makeImage(64 * 1024); // 8 banks of 8 KiB
     const out = await colorDreams.dumpChrRom(new ColorDreamsBus(prg, chr), 64);
     expectSameBytes(out, chr);
+  });
+});
+
+describe("UxROM (mapper 2)", () => {
+  // Models the bus conflict and the fixed last bank. A register write to
+  // $8000-$FFFF latches `cpu_value & rom_value`, where rom_value is the
+  // byte at the write address in the currently-mapped 16 KiB bank at
+  // $8000-$BFFF. bits 0-3 select that switchable bank; $C000-$FFFF is
+  // hardwired to the last 16 KiB bank. `drops` simulates a flaky clone
+  // latch by ignoring the first N non-zero selects (leaving bank 0).
+  class UxromBus implements NesBus {
+    private prgBank = 0;
+    private readonly prg: Uint8Array;
+    private readonly numBanks: number;
+    private drops: number;
+    constructor(prg: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.numBanks = prg.length / 0x4000;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      // The write resolves through whichever 16 KiB half it lands in:
+      // $8000-$BFFF is the switchable bank, $C000-$FFFF the fixed last bank.
+      const physBank = addr < 0xc000 ? this.prgBank : this.numBanks - 1;
+      const romByte = this.prg[physBank * 0x4000 + (addr & 0x3fff)] ?? 0xff;
+      const latched = value & romByte;
+      if (latched !== 0 && this.drops > 0) {
+        this.drops--; // dropped latch: register keeps its old value
+        return;
+      }
+      this.prgBank = latched & 0x0f;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      expect(length).toBe(0x4000); // only the switchable $8000-$BFFF window
+      const off = this.prgBank * 0x4000;
+      return this.prg.slice(off, off + length);
+    }
+  }
+
+  it("dumps all eight 16 KiB PRG banks (UNROM, 128 KiB)", async () => {
+    const prg = imageWithGate(128 * 1024);
+    const out = await uxrom.dumpPrgRom(new UxromBus(prg), 128);
+    expectSameBytes(out, prg);
+  });
+
+  it("dumps all sixteen 16 KiB PRG banks (UOROM, 256 KiB)", async () => {
+    const prg = imageWithGate(256 * 1024);
+    const out = await uxrom.dumpPrgRom(new UxromBus(prg), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("recovers from a dropped bank-select via the bank-0 retry", async () => {
+    const prg = imageWithGate(128 * 1024);
+    // Drop the first real select: it reads back as bank 0, and
+    // readBankWithRetry re-issues it from bank 0.
+    const out = await uxrom.dumpPrgRom(new UxromBus(prg, 1), 128);
+    expectSameBytes(out, prg);
+  });
+
+  it("returns an empty CHR dump for CHR-RAM carts (size 0)", async () => {
+    const out = await uxrom.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
+  });
+});
+
+describe("CNROM (mapper 3)", () => {
+  // CNROM has a fixed PRG window (no banking) and switchable 8 KiB CHR
+  // banks. The register lives in PRG space, so a write latches
+  // `cpu_value & rom_value`, where rom_value is the byte at the write
+  // address in the fixed PRG image. The latched value is the CHR bank.
+  // `drops` simulates a flaky clone latch by ignoring the first N
+  // non-zero selects (leaving the cart on CHR bank 0).
+  class CnromBus implements NesBus {
+    private chrBank = 0;
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    private drops: number;
+    constructor(prg: Uint8Array, chr: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.chr = chr;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      // PRG is fixed: the gate byte comes from the single PRG image.
+      const romByte = this.prg[addr - 0x8000] ?? 0xff;
+      const latched = value & romByte;
+      if (latched !== 0 && this.drops > 0) {
+        this.drops--; // dropped latch: register keeps its old value
+        return;
+      }
+      this.chrBank = latched;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      // Flat, fixed PRG window — never banked.
+      return this.prg.slice(0, length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      const off = this.chrBank * 0x2000;
+      return this.chr.slice(off, off + length);
+    }
+  }
+
+  it("dumps the flat fixed PRG window", async () => {
+    const prg = makeImage(32 * 1024);
+    const out = await cnrom.dumpPrgRom(
+      new CnromBus(prg, new Uint8Array(0)),
+      32,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it("dumps all four 8 KiB CHR banks", async () => {
+    const prg = imageWithGate(32 * 1024); // PRG carries the write gate
+    const chr = makeImage(32 * 1024); // 4 banks of 8 KiB
+    const out = await cnrom.dumpChrRom(new CnromBus(prg, chr), 32);
+    expectSameBytes(out, chr);
+  });
+
+  it("recovers from a dropped CHR bank-select via the bank-0 retry", async () => {
+    const prg = imageWithGate(32 * 1024);
+    const chr = makeImage(32 * 1024);
+    // Drop the first real select: that bank reads back as CHR bank 0, and
+    // readBankWithRetry re-issues it from the conflict-immune 0x00 write.
+    const out = await cnrom.dumpChrRom(new CnromBus(prg, chr, 1), 32);
+    expectSameBytes(out, chr);
+  });
+});
+
+describe("AxROM (mapper 7)", () => {
+  // Models the bus conflict: a register write latches `cpu_value &
+  // rom_value`, where rom_value is the byte at the write address in the
+  // currently-mapped PRG bank. Register: bits 0-2 = 32 KiB PRG bank; the
+  // select value is the bank index itself. (bit 4 is 1-screen mirroring,
+  // which does not affect dumped content.) `drops` simulates a flaky clone
+  // latch by ignoring the first N non-zero selects (leaving the cart on
+  // bank 0). CHR is RAM, so there is nothing to read on the PPU bus.
+  class AxromBus implements NesBus {
+    private prgBank = 0;
+    private readonly prg: Uint8Array;
+    private drops: number;
+    constructor(prg: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      const romByte = this.prg[this.prgBank * 0x8000 + (addr - 0x8000)] ?? 0xff;
+      const latched = value & romByte;
+      if (latched !== 0 && this.drops > 0) {
+        this.drops--; // dropped latch: register keeps its old value
+        return;
+      }
+      this.prgBank = latched & 0x07;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      const off = this.prgBank * 0x8000;
+      return this.prg.slice(off, off + length);
+    }
+  }
+
+  it("dumps all eight 32 KiB PRG banks via the direct bank index", async () => {
+    const prg = imageWithGate(256 * 1024); // 8 banks of 32 KiB
+    const out = await axrom.dumpPrgRom(new AxromBus(prg), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("recovers from a dropped bank-select via the bank-0 retry", async () => {
+    const prg = imageWithGate(256 * 1024);
+    // Drop the first real select: it reads back as bank 0, and
+    // readBankWithRetry re-issues it from bank 0.
+    const out = await axrom.dumpPrgRom(new AxromBus(prg, 1), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("returns an empty CHR dump (CHR-RAM cart)", async () => {
+    const out = await axrom.dumpChrRom(new AxromBus(new Uint8Array(0)), 0);
+    expect(out.length).toBe(0);
   });
 });
