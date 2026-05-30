@@ -32,8 +32,10 @@ export function NDSScanner({
 
   const handleDownload = useCallback(() => {
     if (!result) return;
-    saveFile(result.outputFile.data, result.outputFile.filename, [".sav"]);
-  }, [result]);
+    saveFile(result.outputFile.data, result.outputFile.filename, [".sav"]).catch(
+      (e) => log(`Couldn't save file: ${(e as Error).message}`, "error"),
+    );
+  }, [result, log]);
 
   const activeInfo = result?.cartInfo ?? cartInfo;
   // Keep the cart panel visible on "error" too: the failure can come from

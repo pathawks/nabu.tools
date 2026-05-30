@@ -542,6 +542,7 @@ function App() {
                         ?.operations.includes("dump_rom")
                     }
                     summary={dumpSummary}
+                    log={log}
                   />
                 )}
               </div>

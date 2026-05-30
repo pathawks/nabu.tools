@@ -292,9 +292,13 @@ export function InfinityScanner({
       const state = slots[position];
       if (state.kind !== "authenticated" || !state.uid || !state.figure) return;
       const data = buildFigureFile(state.figure);
-      await saveFile(data, uidFilename(state.uid), [".bin"]);
+      try {
+        await saveFile(data, uidFilename(state.uid), [".bin"]);
+      } catch (e) {
+        log(`Couldn't save figure: ${(e as Error).message}`, "error");
+      }
     },
-    [slots],
+    [slots, log],
   );
 
   const anyContent = POSITIONS.some((p) => slots[p].kind !== "empty");

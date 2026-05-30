@@ -67,6 +67,8 @@ interface CompleteStepProps {
   saveOnly: boolean;
   /** Optional system-specific breakdown of the dump's contents. */
   summary?: DumpSummary | null;
+  /** Event-log sink, used to surface a failed save. */
+  log: (message: string, level?: "info" | "warn" | "error") => void;
 }
 
 export function CompleteStep({
@@ -79,6 +81,7 @@ export function CompleteStep({
   hotSwap,
   saveOnly,
   summary,
+  log,
 }: CompleteStepProps) {
   const verified = result.verification.matched;
   const verifiedName = result.verification.entry?.name;
@@ -111,6 +114,15 @@ export function CompleteStep({
         : (title || "dump") + fileExtension;
   const saveFilename = baseName + ".sav";
 
+  const save = useCallback(
+    (data: Uint8Array, name: string, extensions: string[]) => {
+      saveFile(data, name, extensions).catch((e) =>
+        log(`Couldn't save ${name}: ${(e as Error).message}`, "error"),
+      );
+    },
+    [log],
+  );
+
   const handleSaveReport = useCallback(() => {
     const report = generateDumpReport({
       result,
@@ -121,8 +133,8 @@ export function CompleteStep({
       durationMs: result.durationMs,
     });
     const data = new TextEncoder().encode(report);
-    saveFile(data, baseName + ".txt", [".txt"]);
-  }, [result, deviceInfo, cartInfo, systemDisplayName, romFilename, baseName]);
+    save(data, baseName + ".txt", [".txt"]);
+  }, [result, deviceInfo, cartInfo, systemDisplayName, romFilename, baseName, save]);
 
   return (
     <Card
@@ -239,7 +251,7 @@ export function CompleteStep({
             <Button
               size="sm"
               onClick={() =>
-                saveFile(
+                save(
                   result.rom!.data,
                   romFilename,
                   result.rom!.acceptExtensions ?? [
@@ -255,9 +267,7 @@ export function CompleteStep({
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
-                saveFile(result.save!.data, saveFilename, [".sav"])
-              }
+              onClick={() => save(result.save!.data, saveFilename, [".sav"])}
             >
               Save SRAM
             </Button>

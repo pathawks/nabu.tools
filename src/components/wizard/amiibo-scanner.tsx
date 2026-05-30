@@ -37,8 +37,10 @@ export function AmiiboScanner({
       filename = `NFC Tag - ${result.parsed.uidHex} - ${date}.bin`;
     }
 
-    saveFile(result.outputFile.data, filename, [".bin"]);
-  }, [result]);
+    saveFile(result.outputFile.data, filename, [".bin"]).catch((e) =>
+      log(`Couldn't save file: ${(e as Error).message}`, "error"),
+    );
+  }, [result, log]);
 
   return (
     <div className="flex flex-col gap-6">
