@@ -87,6 +87,16 @@ resource "aws_s3_bucket_public_access_block" "site" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "site" {
+  bucket = aws_s3_bucket.site.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "site" {
   bucket = aws_s3_bucket.site.id
   policy = jsonencode({
@@ -225,9 +235,14 @@ resource "aws_route53_record" "site" {
 # --- IAM role for GitHub Actions OIDC ---
 
 resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["ffffffffffffffffffffffffffffffffffffffff"]
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  # AWS validates this well-known IdP against its own trust store and ignores
+  # the thumbprint, but list GitHub's real published values, not a placeholder.
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fca",
+  ]
 }
 
 resource "aws_iam_role" "github_actions" {
@@ -325,8 +340,33 @@ resource "aws_iam_role_policy" "terraform" {
         Resource = [aws_s3_bucket.site.arn, "${aws_s3_bucket.site.arn}/*", "arn:aws:s3:::nabu-tools-tfstate", "arn:aws:s3:::nabu-tools-tfstate/*"]
       },
       {
-        Effect   = "Allow"
-        Action   = "cloudfront:*"
+        # CloudFront has no resource-level ARNs for these actions, so Resource
+        # stays "*"; the verbs are scoped to the resources this config manages
+        # (distribution, response-headers policy, origin access control).
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateDistribution",
+          "cloudfront:GetDistribution",
+          "cloudfront:GetDistributionConfig",
+          "cloudfront:UpdateDistribution",
+          "cloudfront:DeleteDistribution",
+          "cloudfront:ListDistributions",
+          "cloudfront:TagResource",
+          "cloudfront:UntagResource",
+          "cloudfront:ListTagsForResource",
+          "cloudfront:CreateResponseHeadersPolicy",
+          "cloudfront:GetResponseHeadersPolicy",
+          "cloudfront:GetResponseHeadersPolicyConfig",
+          "cloudfront:UpdateResponseHeadersPolicy",
+          "cloudfront:DeleteResponseHeadersPolicy",
+          "cloudfront:ListResponseHeadersPolicies",
+          "cloudfront:CreateOriginAccessControl",
+          "cloudfront:GetOriginAccessControl",
+          "cloudfront:GetOriginAccessControlConfig",
+          "cloudfront:UpdateOriginAccessControl",
+          "cloudfront:DeleteOriginAccessControl",
+          "cloudfront:ListOriginAccessControls",
+        ]
         Resource = "*"
       },
       {
