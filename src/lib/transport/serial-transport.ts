@@ -126,7 +126,13 @@ export class SerialTransport implements Transport {
       ]);
 
       if (result.done || !result.value) {
-        throw new Error(`Serial read timeout: got ${this.pendingTotal}/${length} bytes`);
+        const got = this.pendingTotal;
+        // The timed-out read() is still pending on the reader; reset it so its
+        // late chunk can't land in the next receive(), and drop partial bytes.
+        this.pendingBytes = [];
+        this.pendingTotal = 0;
+        await this.resetReader();
+        throw new Error(`Serial read timeout: got ${got}/${length} bytes`);
       }
 
       this.pendingBytes.push(result.value);
@@ -169,13 +175,21 @@ export class SerialTransport implements Transport {
   async flush(): Promise<void> {
     this.pendingBytes = [];
     this.pendingTotal = 0;
-    // Cancel the current reader and get a fresh one to drain the serial buffer
+    await this.resetReader();
+  }
+
+  /**
+   * Cancel the current reader and acquire a fresh one. The cancel settles any
+   * read() still pending on the old reader, so its chunk can't surface in a
+   * later receive() and shift the byte stream.
+   */
+  private async resetReader(): Promise<void> {
     if (!this.port || !this.reader) return;
     try {
       await this.reader.cancel();
       this.reader.releaseLock();
     } catch {
-      // Ignore
+      // Ignore — port may already be gone
     }
     this.reader = this.port.readable!.getReader();
   }
