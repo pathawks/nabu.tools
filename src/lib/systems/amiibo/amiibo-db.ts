@@ -83,17 +83,31 @@ async function ensureDb(): Promise<Map<string, string> | null> {
  * Returns the number of name entries stored.
  */
 export async function importAmiiboDb(file: File): Promise<number> {
-  const json = JSON.parse(await file.text()) as {
-    amiibos?: Record<string, { name: string }>;
-  };
-  if (!json.amiibos || typeof json.amiibos !== "object") {
+  const json: unknown = JSON.parse(await file.text());
+  const amiibos =
+    json && typeof json === "object"
+      ? (json as { amiibos?: unknown }).amiibos
+      : undefined;
+  if (!amiibos || typeof amiibos !== "object") {
     throw new Error('Not an AmiiboAPI database (no "amiibos" map).');
   }
   // Keys are 16-hex-digit IDs prefixed with "0x"; store them by the bare
-  // lowercase hex so a tag's 8-byte ID can be looked up directly.
-  const entries: [string, string][] = Object.entries(json.amiibos).map(
-    ([k, v]) => [k.slice(2).toLowerCase(), v.name],
-  );
+  // lowercase hex so a tag's 8-byte ID can be looked up directly. The file is
+  // user-supplied, so skip anything that isn't a hex-keyed entry with a name.
+  const entries: [string, string][] = Object.entries(
+    amiibos as Record<string, unknown>,
+  )
+    .filter(
+      (entry): entry is [string, { name: string }] =>
+        /^0x[0-9a-f]{16}$/i.test(entry[0]) &&
+        typeof entry[1] === "object" &&
+        entry[1] !== null &&
+        typeof (entry[1] as { name?: unknown }).name === "string",
+    )
+    .map(([k, v]) => [k.slice(2).toLowerCase(), v.name]);
+  if (entries.length === 0) {
+    throw new Error("AmiiboAPI database has no valid entries.");
+  }
   await idbReplaceAll(await openIdb(), [...entries, ["_populated", true]]);
   cache = new Map(entries);
   loading = null;
