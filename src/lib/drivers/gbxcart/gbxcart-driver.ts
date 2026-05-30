@@ -386,11 +386,19 @@ export class GBxCartDriver implements DeviceDriver {
 
     const ack = this.fw!.expectAck;
     const maxChunk = 0x1000;
+    const mbcType = (config.params.mbcType as string) ?? "MBC5";
 
     this.log(`Reading ${saveSize / 1024} KB save...`);
 
     // Enable SRAM access
     await cartWrite(this.transport, 0x0000, 0x0a, ack);
+
+    // MBC1 only routes the 0x4000 register to the RAM bank number while in
+    // RAM-banking mode; without this, multi-bank saves all alias to bank 0.
+    // MBC3/MBC5 have no mode register and select the RAM bank directly.
+    if (mbcType === "MBC1") {
+      await cartWrite(this.transport, 0x6000, 0x01, ack);
+    }
 
     const save = new Uint8Array(saveSize);
     let bytesRead = 0;
