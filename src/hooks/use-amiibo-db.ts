@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { preloadAmiiboDb } from "@/lib/systems/amiibo/amiibo-db";
+import { useState, useEffect, useCallback } from "react";
+import { preloadAmiiboDb, importAmiiboDb } from "@/lib/systems/amiibo/amiibo-db";
 
 export interface AmiiboDbState {
   loaded: boolean;
@@ -8,8 +8,11 @@ export interface AmiiboDbState {
   error: string | null;
 }
 
-/** Preloads the AmiiboAPI character database on mount. */
-export function useAmiiboDb(): AmiiboDbState {
+/**
+ * Loads the user-imported Amiibo character database (cached in IndexedDB) on
+ * mount, and exposes an importer for an AmiiboAPI amiibo.json file.
+ */
+export function useAmiiboDb() {
   const [state, setState] = useState<AmiiboDbState>({
     loaded: false,
     loading: true,
@@ -27,5 +30,15 @@ export function useAmiiboDb(): AmiiboDbState {
       );
   }, []);
 
-  return state;
+  const importDb = useCallback(async (file: File) => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const count = await importAmiiboDb(file);
+      setState({ loaded: count > 0, loading: false, entryCount: count, error: null });
+    } catch (e) {
+      setState((s) => ({ ...s, loading: false, error: (e as Error).message }));
+    }
+  }, []);
+
+  return { ...state, importDb };
 }

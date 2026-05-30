@@ -1,8 +1,6 @@
-// Amiibo character name database — fetched from AmiiboAPI, cached in IndexedDB
-// Source: https://github.com/N3evin/AmiiboAPI
-
-const AMIIBO_DB_URL =
-  "https://raw.githubusercontent.com/N3evin/AmiiboAPI/master/database/amiibo.json";
+// Amiibo character name database. The user supplies AmiiboAPI's amiibo.json
+// (https://github.com/N3evin/AmiiboAPI); we parse it and cache it in
+// IndexedDB so it survives refreshes. Nothing is fetched over the network.
 
 const IDB_NAME = "nabu-amiibo";
 const IDB_STORE = "names";
@@ -29,67 +27,42 @@ function idbGet(db: IDBDatabase, key: string): Promise<unknown> {
   });
 }
 
-function idbPutAll(
+function idbReplaceAll(
   db: IDBDatabase,
   entries: [string, unknown][],
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, "readwrite");
     const store = tx.objectStore(IDB_STORE);
+    store.clear();
     for (const [key, value] of entries) store.put(value, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
+/** Load the cached database from IndexedDB, or null if none was imported. */
 async function loadDb(): Promise<Map<string, string> | null> {
   try {
     const db = await openIdb();
-
-    // Check IndexedDB first
-    const populated = await idbGet(db, "_populated");
-    if (populated) {
-      // Rebuild map from IDB — get all entries
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(IDB_STORE, "readonly");
-        const req = tx.objectStore(IDB_STORE).openCursor();
-        const map = new Map<string, string>();
-        req.onsuccess = () => {
-          const cursor = req.result;
-          if (cursor) {
-            if (cursor.key !== "_populated" && typeof cursor.value === "string") {
-              map.set(cursor.key as string, cursor.value);
-            }
-            cursor.continue();
-          } else {
-            resolve(map);
+    if (!(await idbGet(db, "_populated"))) return null;
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).openCursor();
+      const map = new Map<string, string>();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (cursor.key !== "_populated" && typeof cursor.value === "string") {
+            map.set(cursor.key as string, cursor.value);
           }
-        };
-        req.onerror = () => reject(req.error);
-      });
-    }
-
-    // Fetch from GitHub
-    const resp = await fetch(AMIIBO_DB_URL, {
-      signal: AbortSignal.timeout(15000),
+          cursor.continue();
+        } else {
+          resolve(map);
+        }
+      };
+      req.onerror = () => reject(req.error);
     });
-    if (!resp.ok) return null;
-    const json = (await resp.json()) as {
-      amiibos: Record<string, { name: string }>;
-    };
-
-    const entries: [string, string][] = Object.entries(json.amiibos).map(
-      ([k, v]) => [k.slice(2).toLowerCase(), v.name],
-    );
-    const map = new Map(entries);
-
-    // Persist to IndexedDB
-    await idbPutAll(db, [
-      ...entries,
-      ["_populated", true],
-    ]);
-
-    return map;
   } catch {
     return null;
   }
@@ -106,22 +79,44 @@ async function ensureDb(): Promise<Map<string, string> | null> {
 }
 
 /**
- * Preload the database (fetch + cache). Returns entry count.
- * Safe to call multiple times — subsequent calls are instant.
+ * Import an AmiiboAPI amiibo.json database, replacing any cached copy.
+ * Returns the number of name entries stored.
+ */
+export async function importAmiiboDb(file: File): Promise<number> {
+  const json = JSON.parse(await file.text()) as {
+    amiibos?: Record<string, { name: string }>;
+  };
+  if (!json.amiibos || typeof json.amiibos !== "object") {
+    throw new Error('Not an AmiiboAPI database (no "amiibos" map).');
+  }
+  // Keys are 16-hex-digit IDs prefixed with "0x"; store them by the bare
+  // lowercase hex so a tag's 8-byte ID can be looked up directly.
+  const entries: [string, string][] = Object.entries(json.amiibos).map(
+    ([k, v]) => [k.slice(2).toLowerCase(), v.name],
+  );
+  await idbReplaceAll(await openIdb(), [...entries, ["_populated", true]]);
+  cache = new Map(entries);
+  loading = null;
+  return cache.size;
+}
+
+/**
+ * Load the imported database into memory. Returns the entry count, or 0 if
+ * none has been imported. Safe to call repeatedly — later calls are instant.
  */
 export async function preloadAmiiboDb(): Promise<number> {
   const db = await ensureDb();
   return db?.size ?? 0;
 }
 
-/** Whether the database is currently loaded in memory. */
+/** Whether a database is currently loaded in memory. */
 export function isAmiiboDbLoaded(): boolean {
   return cache !== null;
 }
 
 /**
  * Look up an Amiibo's character name by its 8-byte hex ID.
- * Returns null if the database is unavailable or the ID is unknown.
+ * Returns null if no database is loaded or the ID is unknown.
  */
 export async function lookupAmiiboName(
   amiiboId: string,
