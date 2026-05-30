@@ -65,12 +65,20 @@ export function parseNdef(dump: Uint8Array): NdefResult {
     const il = header & 0x08;
 
     const typeLength = ndefBytes[offset++];
-    const payloadLength = sr
-      ? ndefBytes[offset++]
-      : (ndefBytes[offset++] << 24) |
-        (ndefBytes[offset++] << 16) |
-        (ndefBytes[offset++] << 8) |
-        ndefBytes[offset++];
+    let payloadLength: number;
+    if (sr) {
+      payloadLength = ndefBytes[offset++];
+    } else {
+      // 4-byte big-endian length. `>>> 0` keeps it unsigned — otherwise a
+      // high bit makes it negative and the offset walks backwards.
+      payloadLength =
+        ((ndefBytes[offset] << 24) |
+          (ndefBytes[offset + 1] << 16) |
+          (ndefBytes[offset + 2] << 8) |
+          ndefBytes[offset + 3]) >>>
+        0;
+      offset += 4;
+    }
     const idLength = il ? ndefBytes[offset++] : 0;
 
     const type = ndefBytes[offset];
@@ -106,6 +114,9 @@ function findNdefTlv(data: Uint8Array): Uint8Array | null {
 
     let length: number;
     if (data[offset] === 0xff) {
+      // 3-byte format: 0xFF then a 2-byte big-endian length. Bail if the
+      // two length bytes run past the end of a truncated dump.
+      if (offset + 2 >= data.length) break;
       length = (data[offset + 1] << 8) | data[offset + 2];
       offset += 3;
     } else {
