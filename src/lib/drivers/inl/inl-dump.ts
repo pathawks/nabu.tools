@@ -8,16 +8,19 @@
  */
 
 import type { INLDevice } from "./inl-device";
-import {
-  BUFFER,
-  OPER,
-  STATUS,
-  PART,
-} from "./inl-opcodes";
+import { BUFFER, MEM, OPER, PART, STATUS } from "./inl-opcodes";
 
 const BUFF_SIZE = 128;
 const RAW_BANK_SIZE = 32;
 const NUM_BANKS_PER_BUFF = BUFF_SIZE / RAW_BANK_SIZE; // 4
+
+/**
+ * Cap how long to wait for a single buffer to report DUMPED. Each poll is a
+ * fast USB round-trip, so the loop already yields; exceeding this bound means
+ * the transfer stalled or the device faulted, and we error rather than spin
+ * forever.
+ */
+const POLL_TIMEOUT_MS = 5000;
 
 export interface DumpRegionOptions {
   sizeKB: number;
@@ -89,8 +92,12 @@ export async function dumpRegion(
   // Allocate 2x128B double buffers
   await allocateBuffers(device);
 
-  // Configure both buffers: memory type + part number
-  const memPart = (opts.memType << 8) | PART.MASKROM;
+  // Configure both buffers: memory type + part number. PRG-RAM is
+  // SRAM-backed; every other region we read is mask ROM. The part must match
+  // the region so the firmware drives the right chip — a save read with the
+  // mask-ROM part would target the wrong device.
+  const part = opts.memType === MEM.PRGRAM ? PART.SRAM : PART.MASKROM;
+  const memPart = (opts.memType << 8) | part;
   await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 0);
   await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 1);
 
@@ -107,9 +114,19 @@ export async function dumpRegion(
   let bytesRead = 0;
 
   for (let i = 0; i < numChunks; i++) {
-    // Poll until current buffer is DUMPED
+    // Poll until the current buffer reports DUMPED. Each poll is a USB
+    // round-trip (so the loop yields), but a stalled transfer or device
+    // fault could otherwise never report DUMPED and hang the dump forever —
+    // bound the wait and surface it as an error instead.
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
     let status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
     while (status !== STATUS.DUMPED) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `INL dump stalled: buffer ${i + 1}/${numChunks} never reported DUMPED ` +
+            `within ${POLL_TIMEOUT_MS}ms (last status 0x${status.toString(16)})`,
+        );
+      }
       status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
     }
 

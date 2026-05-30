@@ -16,6 +16,25 @@ import { NES_MAPPER_DB, getMapperDef, coerceToNearest } from "./nes-constants";
 import { buildNes2Header, type NesMirroring } from "./nes-header";
 import { bytesEqual, isUniformFill } from "./mappers/bank-reliability";
 
+/**
+ * The effective PRG/CHR sizes for a config: the user's selection when set,
+ * otherwise the mapper's default — the LARGEST supported size (the last
+ * entry), which is what the PRG/CHR config fields default to and what
+ * `buildReadConfig` reads. Resolving it in one place keeps the size estimate,
+ * validation, and the actual dump from diverging.
+ */
+function resolveSizesKB(
+  values: ConfigValues,
+  def: ReturnType<typeof getMapperDef>,
+): { prgKB: number; chrKB: number } {
+  const prgSizes = def?.prgSizesKB ?? [32];
+  const chrSizes = def?.chrSizesKB ?? [8];
+  return {
+    prgKB: (values.prgSizeKB as number) ?? prgSizes[prgSizes.length - 1],
+    chrKB: (values.chrSizeKB as number) ?? chrSizes[chrSizes.length - 1],
+  };
+}
+
 export class NESSystemHandler implements SystemHandler {
   readonly systemId = "nes" as const;
   readonly displayName = "NES / Famicom";
@@ -139,10 +158,8 @@ export class NESSystemHandler implements SystemHandler {
   }
 
   estimateDumpSize(values: ConfigValues): number {
-    const mapper = (values.mapper as number) ?? 0;
-    const def = getMapperDef(mapper);
-    const prgKB = (values.prgSizeKB as number) ?? def?.prgSizesKB[0] ?? 32;
-    const chrKB = (values.chrSizeKB as number) ?? def?.chrSizesKB[0] ?? 0;
+    const def = getMapperDef((values.mapper as number) ?? 0);
+    const { prgKB, chrKB } = resolveSizesKB(values, def);
     return 16 + (prgKB + chrKB) * 1024;
   }
 
@@ -162,8 +179,7 @@ export class NESSystemHandler implements SystemHandler {
       return errors.length > 0 ? { valid: false, errors } : { valid: true };
     }
 
-    const prgSizeKB = (values.prgSizeKB as number) ?? def.prgSizesKB[0];
-    const chrSizeKB = (values.chrSizeKB as number) ?? def.chrSizesKB[0];
+    const { prgKB: prgSizeKB, chrKB: chrSizeKB } = resolveSizesKB(values, def);
 
     if (!def.prgSizesKB.includes(prgSizeKB)) {
       errors.push({
@@ -192,12 +208,10 @@ export class NESSystemHandler implements SystemHandler {
   buildReadConfig(values: ConfigValues): ReadConfig {
     const mapper = (values.mapper as number) ?? 0;
     const mapperDef = getMapperDef(mapper);
-    const validPrg = mapperDef?.prgSizesKB ?? [32];
-    const validChr = mapperDef?.chrSizesKB ?? [8];
-    const prgSizeKB =
-      (values.prgSizeKB as number) ?? validPrg[validPrg.length - 1];
-    const chrSizeKB =
-      (values.chrSizeKB as number) ?? validChr[validChr.length - 1];
+    const { prgKB: prgSizeKB, chrKB: chrSizeKB } = resolveSizesKB(
+      values,
+      mapperDef,
+    );
     // A single opt-in drives both: flag battery SRAM in the header and read it.
     const backupSave = (values.backupSave as boolean) ?? false;
     return {
