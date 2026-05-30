@@ -207,6 +207,14 @@ interface FileSystemWritableFileStream extends WritableStream {
 interface HID extends EventTarget {
   requestDevice(options: HIDDeviceRequestOptions): Promise<HIDDevice[]>;
   getDevices(): Promise<HIDDevice[]>;
+  addEventListener(
+    type: "connect" | "disconnect",
+    listener: (event: HIDConnectionEvent) => void,
+  ): void;
+  removeEventListener(
+    type: "connect" | "disconnect",
+    listener: (event: HIDConnectionEvent) => void,
+  ): void;
 }
 
 interface HIDDeviceRequestOptions {

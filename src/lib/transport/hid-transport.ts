@@ -57,13 +57,7 @@ export class HidTransport implements Transport {
 
     this.device = device;
     device.addEventListener("inputreport", this.onInputReport);
-
-    navigator.hid!.addEventListener("disconnect", ((e: HIDConnectionEvent) => {
-      if (e.device === this.device) {
-        this.device = null;
-        this.events.onDisconnect?.();
-      }
-    }) as EventListener);
+    navigator.hid!.addEventListener("disconnect", this.onHidDisconnect);
 
     return {
       vendorId: device.vendorId,
@@ -75,6 +69,7 @@ export class HidTransport implements Transport {
   }
 
   async disconnect(): Promise<void> {
+    navigator.hid!.removeEventListener("disconnect", this.onHidDisconnect);
     if (this.device) {
       this.device.removeEventListener("inputreport", this.onInputReport);
       try {
@@ -118,6 +113,16 @@ export class HidTransport implements Transport {
   ): void {
     this.events[event] = handler;
   }
+
+  // A single stable reference so the global navigator.hid listener can be
+  // removed again; otherwise every connect would leak a closure over `this`.
+  private onHidDisconnect = (event: HIDConnectionEvent): void => {
+    if (event.device === this.device) {
+      navigator.hid!.removeEventListener("disconnect", this.onHidDisconnect);
+      this.device = null;
+      this.events.onDisconnect?.();
+    }
+  };
 
   private onInputReport = (event: Event): void => {
     const { data } = event as unknown as HIDInputReportEvent;

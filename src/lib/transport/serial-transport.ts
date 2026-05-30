@@ -50,12 +50,7 @@ export class SerialTransport implements Transport {
     this.pendingTotal = 0;
 
     // Listen for surprise disconnect
-    port.addEventListener("disconnect", () => {
-      this.port = null;
-      this.reader = null;
-      this.writer = null;
-      this.events.onDisconnect?.();
-    });
+    port.addEventListener("disconnect", this.onSerialDisconnect);
 
     const info = port.getInfo();
     // Web Serial doesn't expose productName; the vendor:product pair is the
@@ -74,6 +69,7 @@ export class SerialTransport implements Transport {
   }
 
   async disconnect(): Promise<void> {
+    this.port?.removeEventListener("disconnect", this.onSerialDisconnect);
     try {
       if (this.reader) {
         await this.reader.cancel();
@@ -183,6 +179,16 @@ export class SerialTransport implements Transport {
     }
     this.reader = this.port.readable!.getReader();
   }
+
+  // A single stable reference so the port's disconnect listener can be
+  // removed again on disconnect (and self-removed on surprise removal).
+  private onSerialDisconnect = (): void => {
+    this.port?.removeEventListener("disconnect", this.onSerialDisconnect);
+    this.port = null;
+    this.reader = null;
+    this.writer = null;
+    this.events.onDisconnect?.();
+  };
 
   private consume(length: number): Uint8Array {
     if (this.debug) {
