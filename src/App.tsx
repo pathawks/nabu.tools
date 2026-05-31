@@ -21,8 +21,10 @@ import { Ps1SystemHandler } from "@/lib/systems/ps1/ps1-system-handler";
 import { NOINTRO_SYSTEM_NAMES } from "@/lib/core/nointro";
 import { AmiiboScanner } from "@/components/wizard/amiibo-scanner";
 import { InfinityScanner } from "@/components/wizard/infinity-scanner";
+import { PortalScanner } from "@/components/wizard/portal-scanner";
 import { NDSScanner } from "@/components/wizard/nds-scanner";
 import type { InfinityDriver } from "@/lib/drivers/infinity/infinity-driver";
+import type { PortalOfPowerDriver } from "@/lib/drivers/portal-of-power/portal-driver";
 import type { NDSDeviceDriver } from "@/lib/systems/nds/nds-header";
 import type {
   DeviceDriver,
@@ -188,7 +190,9 @@ function App() {
             ? `Detected: ${result.cartInfo.title ?? "Unknown"} (${result.cartInfo.mapper.name ?? "unknown mapper"})`
             : `Detected: ${result.cartInfo.title ?? "Unknown"}`,
         );
-        const cap = drv.capabilities.find((c) => c.systemId === result.systemId);
+        const cap = drv.capabilities.find(
+          (c) => c.systemId === result.systemId,
+        );
         const prefilled = prefillFromCartInfo(
           system,
           result.cartInfo,
@@ -213,6 +217,7 @@ function App() {
         (c) =>
           c.systemId === "amiibo" ||
           c.systemId === "disney-infinity" ||
+          c.systemId === "skylanders" ||
           c.systemId === "nds_save",
       );
       if (!isScanner) autoDetectSystem(_driver);
@@ -248,6 +253,9 @@ function App() {
     connection.driver?.capabilities.some(
       (c) => c.systemId === "disney-infinity",
     ) ?? false;
+  const isPortalDevice =
+    connection.driver?.capabilities.some((c) => c.systemId === "skylanders") ??
+    false;
   const isNDSSaveDevice =
     connection.driver?.capabilities.some((c) => c.systemId === "nds_save") ??
     false;
@@ -291,7 +299,11 @@ function App() {
                 ? `Detected: ${info.title ?? "Unknown"} (${info.mapper.name ?? "unknown mapper"})`
                 : `Detected: ${info.title ?? "Unknown"}`,
             );
-            prefilled = prefillFromCartInfo(system, info, hasSeparateSaveRead(cap));
+            prefilled = prefillFromCartInfo(
+              system,
+              info,
+              hasSeparateSaveRead(cap),
+            );
           } else {
             log("No cartridge detected", "warn");
           }
@@ -426,6 +438,13 @@ function App() {
             ) : isInfinityDevice ? (
               <InfinityScanner
                 driver={connection.driver! as InfinityDriver}
+                deviceInfo={connection.deviceInfo}
+                onDisconnect={handleDisconnect}
+                log={log}
+              />
+            ) : isPortalDevice ? (
+              <PortalScanner
+                driver={connection.driver! as PortalOfPowerDriver}
                 deviceInfo={connection.deviceInfo}
                 onDisconnect={handleDisconnect}
                 log={log}

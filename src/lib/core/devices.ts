@@ -76,6 +76,19 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Logic3 / PDP Disney Infinity Base. Reads Disney Infinity figures " +
       "(Wii / Wii U / PS3 / PS4 / PC variant).",
   },
+  PORTAL_OF_POWER: {
+    id: "PORTAL_OF_POWER",
+    name: "Skylanders Portal of Power",
+    vendorId: 0x1430,
+    productId: 0x0150,
+    transport: "webhid",
+    systems: [{ id: "skylanders", name: "Skylanders Figures" }],
+    description:
+      "Activision Skylanders portal. Reads the NFC figures placed on it. " +
+      "Works in Chrome on macOS and Windows; Linux Chrome cannot drive it — " +
+      "the portal only accepts writes through a control request the Linux " +
+      "HID stack won't issue (no udev rule changes this).",
+  },
   // The adapter performs an SIO-level identification challenge before
   // reporting a card type. First-party PS1 cards reply with the expected
   // ID bytes (0x5A 0x5D) on the first request; multi-page clone cards
