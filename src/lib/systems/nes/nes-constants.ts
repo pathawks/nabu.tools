@@ -114,6 +114,19 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
   },
+  {
+    // CNROM with a CHR-ROM lockout. Electrically plain CNROM: fixed 32 KiB
+    // PRG and a single 8 KiB CHR bank (no banking — the bank-select lines
+    // drive the lockout instead). All known 185 boards are 32 KiB PRG +
+    // 8 KiB CHR. See mappers/mapper185.ts.
+    id: 185,
+    name: "CNROM (protection diodes)",
+    prgSizesKB: [32],
+    chrSizesKB: [8],
+    mirroring: "selectable",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+  },
 ];
 
 export function getMapperDef(id: number): NESMapperDef | undefined {

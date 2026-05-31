@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { NesBus } from "../bus";
-import { bytesEqual } from "./bank-reliability";
+import { bytesEqual, isUniformFill } from "./bank-reliability";
 import { nrom } from "./nrom";
 import { mmc1 } from "./mmc1";
 import { uxrom } from "./uxrom";
@@ -10,6 +10,7 @@ import { mmc3 } from "./mmc3";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
+import { mapper185 } from "./mapper185";
 
 /**
  * A deterministic, well-mixed cart image. The multiplicative hash makes
@@ -608,6 +609,87 @@ describe("CxROM (mapper 3)", () => {
     // readBankWithRetry re-issues it from the conflict-immune 0x00 write.
     const out = await cxrom.dumpChrRom(new CxromBus(prg, chr, 1), 32);
     expectSameBytes(out, chr);
+  });
+});
+
+describe("mapper 185 (CNROM protection diodes)", () => {
+  // CNROM electrically: flat PRG, one 8 KiB CHR bank. The twist is the
+  // lockout — a register write latches `cpu & rom` (bus conflict through the
+  // fixed PRG image), and the CHR-ROM only drives the PPU bus when the low
+  // two latched bits equal the board's `lockout` value. Any other value
+  // leaves CHR disabled and the PPU read floats high (open bus, 0xFF).
+  class Mapper185Bus implements NesBus {
+    private latched = 0;
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    private readonly lockout: number;
+    constructor(prg: Uint8Array, chr: Uint8Array, lockout: number) {
+      this.prg = prg;
+      this.chr = chr;
+      this.lockout = lockout;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      const romByte = this.prg[addr - 0x8000] ?? 0xff;
+      this.latched = value & romByte;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      // Flat, fixed PRG window — never banked.
+      return this.prg.slice(0, length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      if ((this.latched & 0x03) !== this.lockout) {
+        // CHR output disabled — PPU bus floats high.
+        return new Uint8Array(length).fill(0xff);
+      }
+      return this.chr.slice(0, length);
+    }
+  }
+
+  it("dumps the flat fixed PRG window (like NROM)", async () => {
+    const prg = makeImage(32 * 1024);
+    const out = await mapper185.dumpPrgRom(
+      new Mapper185Bus(prg, new Uint8Array(0), 0),
+      32,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it.each([0, 1, 2, 3])(
+    "probes the lockout to release and dump the 8 KiB CHR (enable %i)",
+    async (lockout) => {
+      const prg = imageWithGate(32 * 1024); // PRG carries the write gate
+      const chr = makeImage(8 * 1024);
+      const out = await mapper185.dumpChrRom(
+        new Mapper185Bus(prg, chr, lockout),
+        8,
+      );
+      expectSameBytes(out, chr);
+    },
+  );
+
+  it("warns and returns open-bus CHR when no value releases it", async () => {
+    const prg = imageWithGate(32 * 1024);
+    const chr = makeImage(8 * 1024);
+    // A board whose decode never matches any 2-bit candidate (an unknown
+    // lockout variant): every probe reads open bus.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = await mapper185.dumpChrRom(new Mapper185Bus(prg, chr, 0x99), 8);
+    expect(isUniformFill(out)).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/mapper 185/));
+    warn.mockRestore();
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const noPpu: NesBus = {
+      setup: async () => {},
+      writeCpu: async () => {},
+      readCpu: async () => new Uint8Array(0x8000),
+    };
+    await expect(mapper185.dumpChrRom(noPpu, 8)).rejects.toThrow(/PPU-bus/);
   });
 });
 
