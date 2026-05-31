@@ -9,8 +9,8 @@ I just wanted to back up my games.
 
 nabu is a browser-based cartridge dumper. Plug in your hardware, open the page,
 and dump your cartridges. No installs, no drivers, no build toolchains. It runs
-entirely in the browser using Web Serial and WebHID, so it works on any desktop
-OS with a modern browser.
+entirely in the browser using Web Serial, WebHID, and WebUSB, so it works on
+any desktop OS with a modern browser.
 
 The name comes from the
 [Mesopotamian god of writing and wisdom](https://en.wikipedia.org/wiki/Nabu) --
@@ -67,7 +67,7 @@ npm run dev
 ```
 
 This will start a local Vite dev server. You'll need a Chromium-based browser
-for Web Serial and WebHID support (sorry, Firefox).
+for Web Serial, WebHID, and WebUSB support (sorry, Firefox).
 
 ```sh
 npm run build
