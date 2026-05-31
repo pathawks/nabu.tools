@@ -98,8 +98,6 @@ async function init(bus: NesBus): Promise<void> {
 export const mmc1: NesMapper = {
   id: 1,
   name: "MMC1",
-  defaultPrgSizes: [512, 256, 128, 64, 32],
-  defaultChrSizes: [128, 64, 32, 16, 8, 0],
 
   async enableSram(bus) {
     await bus.setup();
@@ -119,7 +117,7 @@ export const mmc1: NesMapper = {
       {
         label: "MMC1 PRG",
         bankBytes: PRG_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / PRG_BANK_BYTES,
+        numBanks: sizeKB / PRG_BANK_KB,
         readBank: async (bank) => {
           // Select the 32 KiB bank — in 32 KiB PRG mode the bank
           // register's LSB is ignored, so shift the index up by one.
@@ -153,7 +151,7 @@ export const mmc1: NesMapper = {
       {
         label: "MMC1 CHR",
         bankBytes: CHR_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
+        numBanks: sizeKB / CHR_BANK_KB,
         readBank: async (bank) => {
           // 4 KiB CHR mode: load each window independently.
           await writeReg(bus, CHR0_REG, bank * 2);

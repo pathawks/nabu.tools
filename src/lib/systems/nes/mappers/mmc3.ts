@@ -60,8 +60,6 @@ async function selectPrgBank(
 export const mmc3: NesMapper = {
   id: 4,
   name: "MMC3",
-  defaultPrgSizes: [512, 256, 128, 64, 32],
-  defaultChrSizes: [256, 128, 64, 32, 16, 8, 0],
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();
@@ -69,12 +67,13 @@ export const mmc3: NesMapper = {
 
     // Walk PRG one 8 KiB bank at a time — MMC3's PRG bank granularity, and
     // the granularity at which clone carts drop a bank-select latch.
-    const BANK = 8 * 1024;
+    const BANK_KB = 8;
+    const BANK = BANK_KB * 1024;
     return walkBanks(
       {
         label: "MMC3 PRG",
         bankBytes: BANK,
-        numBanks: (sizeKB * 1024) / BANK,
+        numBanks: sizeKB / BANK_KB,
         // Map bank N to $8000 via R6.
         readBank: async (bank) => {
           await selectPrgBank(bus, bank);
@@ -100,12 +99,13 @@ export const mmc3: NesMapper = {
 
     // Walk CHR in 4 KiB outer iterations: R0=bank*2, R1=bank*2+1
     // (the bank-data register stores 2 KiB units, so shift left by 1).
-    const OUTER = 4 * 1024;
+    const OUTER_KB = 4;
+    const OUTER = OUTER_KB * 1024;
     return walkBanks(
       {
         label: "MMC3 CHR",
         bankBytes: OUTER,
-        numBanks: (sizeKB * 1024) / OUTER,
+        numBanks: sizeKB / OUTER_KB,
         readBank: async (i) => {
           await bus.writeCpu(BANK_SELECT, 0x00);
           await bus.writeCpu(BANK_DATA, (i * 2) << 1);

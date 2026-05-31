@@ -35,9 +35,6 @@ const CHR_BANK_KB = 4;
 export const mmc2: NesMapper = {
   id: 9,
   name: "MMC2",
-  // MMC2 shipped in exactly one licensed cart: 128 KiB PRG + 128 KiB CHR.
-  defaultPrgSizes: [128],
-  defaultChrSizes: [128],
 
   async dumpPrgRom(
     bus: NesBus,
@@ -53,7 +50,7 @@ export const mmc2: NesMapper = {
       {
         label: "MMC2 PRG",
         bankBytes,
-        numBanks: (sizeKB * 1024) / bankBytes,
+        numBanks: sizeKB / PRG_BANK_KB,
         readBank: async (bank) => {
           await bus.writeCpu(PRG_BANK, bank & 0x0f);
           return bus.readCpu(0x8000, bankBytes);
@@ -82,7 +79,7 @@ export const mmc2: NesMapper = {
       {
         label: "MMC2 CHR",
         bankBytes,
-        numBanks: (sizeKB * 1024) / bankBytes,
+        numBanks: sizeKB / CHR_BANK_KB,
         // Pin both latch banks to the same 4 KiB bank so the latch flip at
         // $0FD8/$0FE8 partway through the read is a no-op. No bank-0 dropout
         // retry: with both registers equal the window is latch-immune, and

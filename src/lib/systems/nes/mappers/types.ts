@@ -13,8 +13,6 @@ export type ProgressCb = (bytesRead: number, totalBytes: number) => void;
 export interface NesMapper {
   readonly id: number;
   readonly name: string;
-  readonly defaultPrgSizes: number[];
-  readonly defaultChrSizes: number[];
 
   /** Auto-detect CIRAM mirroring. Optional; not all mappers/buses support it. */
   detectMirroring?(bus: NesBus): Promise<string>;

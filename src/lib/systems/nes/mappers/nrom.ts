@@ -14,8 +14,6 @@ import type { NesMapper } from "./types";
 export const nrom: NesMapper = {
   id: 0,
   name: "NROM",
-  defaultPrgSizes: [32, 16],
-  defaultChrSizes: [0, 8],
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();

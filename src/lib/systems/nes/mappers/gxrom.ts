@@ -22,14 +22,14 @@ import type { NesMapper } from "./types";
 import { selectBank, readLatchedChrBank } from "./bus-conflict";
 import { walkBanks } from "./bank-walk";
 
-const PRG_BANK_BYTES = 32 * 1024;
-const CHR_BANK_BYTES = 8 * 1024;
+const PRG_BANK_KB = 32;
+const CHR_BANK_KB = 8;
+const PRG_BANK_BYTES = PRG_BANK_KB * 1024;
+const CHR_BANK_BYTES = CHR_BANK_KB * 1024;
 
 export const gxrom: NesMapper = {
   id: 66,
   name: "GxROM",
-  defaultPrgSizes: [128, 64, 32],
-  defaultChrSizes: [32, 16, 8],
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();
@@ -37,7 +37,7 @@ export const gxrom: NesMapper = {
       {
         label: "GxROM PRG",
         bankBytes: PRG_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / PRG_BANK_BYTES,
+        numBanks: sizeKB / PRG_BANK_KB,
         // PRG bank N in bits 5-4 (CHR bits stay 0). Bank 0's select homes
         // to a conflict-immune 0x00 write; later banks gate through bank 0.
         readBank: async (bank, gate) => {
@@ -62,7 +62,7 @@ export const gxrom: NesMapper = {
       {
         label: "GxROM CHR",
         bankBytes: CHR_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
+        numBanks: sizeKB / CHR_BANK_KB,
         // CHR bank N in bits 1-0 (PRG bits stay 0).
         readBank: (bank) =>
           readLatchedChrBank(bus, bank, prgGate, CHR_BANK_BYTES),

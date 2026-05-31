@@ -33,13 +33,12 @@ import type { NesMapper } from "./types";
 import { selectBank } from "./bus-conflict";
 import { walkBanks } from "./bank-walk";
 
-const PRG_BANK_BYTES = 32 * 1024;
+const PRG_BANK_KB = 32;
+const PRG_BANK_BYTES = PRG_BANK_KB * 1024;
 
 export const axrom: NesMapper = {
   id: 7,
   name: "AxROM",
-  defaultPrgSizes: [256, 128, 64],
-  defaultChrSizes: [0],
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();
@@ -47,7 +46,7 @@ export const axrom: NesMapper = {
       {
         label: "AxROM PRG",
         bankBytes: PRG_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / PRG_BANK_BYTES,
+        numBanks: sizeKB / PRG_BANK_KB,
         // PRG bank N in bits 0-2 — the select value is the bank index
         // (mirroring bit 4 stays 0).
         readBank: async (bank, gate) => {

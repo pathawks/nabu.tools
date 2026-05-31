@@ -18,15 +18,17 @@ export interface NESMapperDef {
    * their RAM size here.
    */
   chrRamKB?: number;
-  /** Whether this mapper has a dump implementation in the INL driver. */
-  dumpSupported?: boolean;
 }
 
 /**
- * Mappers offered in the UI. Each is implemented in the shared NES
- * mapper catalog (`./mappers/`) and wired to the INL driver. The list
- * is intentionally small — entries are added back one at a time as each
- * mapper is validated against real hardware.
+ * Static metadata for the mappers offered in the UI — sizes, mirroring,
+ * battery. Whether a mapper can actually be *dumped* is owned by the
+ * device driver (it drives the shared implementation in `./mappers/`),
+ * not declared here. The list is intentionally small — entries are added
+ * one at a time as each mapper is validated against real hardware.
+ *
+ * Size lists are ascending; the largest (last) entry is the default the
+ * config fields and dump-size estimate fall back to.
  */
 export const NES_MAPPER_DB: NESMapperDef[] = [
   {
@@ -37,7 +39,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "selectable",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
-    dumpSupported: true,
   },
   {
     id: 1,
@@ -47,7 +48,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "mapper_controlled",
     commonlyHasBattery: true,
     maxPrgRamKB: 8,
-    dumpSupported: true,
   },
   {
     id: 2,
@@ -58,17 +58,15 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
     chrRamKB: 8,
-    dumpSupported: true,
   },
   {
     id: 3,
     name: "CxROM",
-    prgSizesKB: [32, 16],
+    prgSizesKB: [16, 32],
     chrSizesKB: [8, 16, 32],
     mirroring: "selectable",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
-    dumpSupported: true,
   },
   {
     id: 4,
@@ -78,7 +76,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "mapper_controlled",
     commonlyHasBattery: true,
     maxPrgRamKB: 8,
-    dumpSupported: true,
   },
   {
     id: 7,
@@ -89,7 +86,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
     chrRamKB: 8,
-    dumpSupported: true,
   },
   {
     id: 9,
@@ -99,7 +95,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "mapper_controlled",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
-    dumpSupported: true,
   },
   {
     id: 11,
@@ -109,7 +104,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "selectable",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
-    dumpSupported: true,
   },
   {
     id: 66,
@@ -119,7 +113,6 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "selectable",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
-    dumpSupported: true,
   },
 ];
 

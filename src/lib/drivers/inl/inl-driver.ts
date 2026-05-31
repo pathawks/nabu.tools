@@ -23,38 +23,7 @@ import { IO, MEM, MAPVAR } from "./inl-opcodes";
 import { dumpRegion } from "./inl-dump";
 import { InlNesBus } from "./inl-nes-bus";
 import { detectCiramMirroring } from "./detect-mirroring";
-import { nrom } from "@/lib/systems/nes/mappers/nrom";
-import { mmc1 } from "@/lib/systems/nes/mappers/mmc1";
-import { uxrom } from "@/lib/systems/nes/mappers/uxrom";
-import { cxrom } from "@/lib/systems/nes/mappers/cxrom";
-import { mmc2 } from "@/lib/systems/nes/mappers/mmc2";
-import { mmc3 } from "@/lib/systems/nes/mappers/mmc3";
-import { axrom } from "@/lib/systems/nes/mappers/axrom";
-import { colorDreams } from "@/lib/systems/nes/mappers/color-dreams";
-import { gxrom } from "@/lib/systems/nes/mappers/gxrom";
-import type { NesMapper } from "@/lib/systems/nes/mappers/types";
-
-/**
- * Supported mappers, keyed by iNES mapper ID. Each is a shared,
- * bus-driven implementation from the NES mapper catalog. Add entries
- * here (and to NES_MAPPER_DB) as new mappers are validated on hardware.
- *
- * MMC1's serial shift register is the one mapper detail this device can't
- * drive with plain CPU writes (per-write USB timing drops bits); `mmc1`
- * picks up `InlNesBus.writeSerialRegister` automatically via the optional
- * bus capability, so no per-device variant is needed here.
- */
-const MAPPERS: Record<number, NesMapper> = {
-  0: nrom,
-  1: mmc1,
-  2: uxrom,
-  3: cxrom,
-  4: mmc3,
-  7: axrom,
-  9: mmc2,
-  11: colorDreams,
-  66: gxrom,
-};
+import { getNesMapper } from "@/lib/systems/nes/mappers";
 
 export class INLDriver implements DeviceDriver {
   readonly id = "inl-retro";
@@ -145,7 +114,7 @@ export class INLDriver implements DeviceDriver {
     const prgKB = ((config.params.prgSizeBytes as number) ?? 32768) / 1024;
     const chrKB = ((config.params.chrSizeBytes as number) ?? 8192) / 1024;
 
-    const mapper = MAPPERS[mapperId];
+    const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
 
     // Each mapper drives the cart through the bus; `bus.setup()` (issued
@@ -212,7 +181,7 @@ export class INLDriver implements DeviceDriver {
 
     if (sramKB <= 0) throw new Error("No SRAM to read");
 
-    const mapper = MAPPERS[mapperId];
+    const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
 
     const bus = new InlNesBus(this.inlDevice);

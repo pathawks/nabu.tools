@@ -36,13 +36,12 @@ import type { NesMapper } from "./types";
 import { readLatchedChrBank } from "./bus-conflict";
 import { walkBanks } from "./bank-walk";
 
-const CHR_BANK_BYTES = 8 * 1024;
+const CHR_BANK_KB = 8;
+const CHR_BANK_BYTES = CHR_BANK_KB * 1024;
 
 export const cxrom: NesMapper = {
   id: 3,
   name: "CxROM",
-  defaultPrgSizes: [32, 16],
-  defaultChrSizes: [32, 16, 8],
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     // PRG is fixed: the whole window is mapped at $8000 with no banking,
@@ -68,7 +67,7 @@ export const cxrom: NesMapper = {
       {
         label: "CxROM CHR",
         bankBytes: CHR_BANK_BYTES,
-        numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
+        numBanks: sizeKB / CHR_BANK_KB,
         // CHR bank N is the plain register value (PRG is unaffected).
         readBank: (bank) =>
           readLatchedChrBank(bus, bank, prgGate, CHR_BANK_BYTES),
