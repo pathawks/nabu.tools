@@ -20,7 +20,7 @@ import type {
 import type { INLDevice } from "./inl-device";
 import type { InlTransport } from "./inl-transport";
 import { IO, MEM, MAPVAR } from "./inl-opcodes";
-import { dumpRegion } from "./inl-dump";
+import { dumpRegion, resetBuffers } from "./inl-dump";
 import { InlNesBus } from "./inl-nes-bus";
 import { detectCiramMirroring } from "./detect-mirroring";
 import { getNesMapper } from "@/lib/systems/nes/mappers";
@@ -157,7 +157,8 @@ export class INLDriver implements DeviceDriver {
       });
     }
 
-    // Reset device
+    // Free the buffer allocation the bus left live, then reset the cart bus.
+    await resetBuffers(this.inlDevice);
     await this.inlDevice.io(IO.IO_RESET);
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -203,6 +204,7 @@ export class INLDriver implements DeviceDriver {
       });
     }
 
+    await resetBuffers(this.inlDevice);
     await this.inlDevice.io(IO.IO_RESET);
     this.log(`SRAM read complete (${data.length} bytes)`);
     return data;

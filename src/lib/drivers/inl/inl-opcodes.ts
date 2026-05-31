@@ -81,9 +81,21 @@ export const BUFFER = {
   GET_CUR_BUFF_STATUS: 0x61,
   BUFF_PAYLOAD: 0x70,
 
-  // Per-buffer allocation (buffer index encoded in opcode)
+  // Per-buffer allocation (buffer index encoded in low 3 bits of opcode).
+  // The firmware is built NUM_BUFFERS_4, so buff0..buff3 (0x80..0x83) exist;
+  // 0x84+ return ERR_BUFN_DOES_NOT_EXIST.
   ALLOCATE_BUFFER0: 0x80,
   ALLOCATE_BUFFER1: 0x81,
+  ALLOCATE_BUFFER2: 0x82,
+  ALLOCATE_BUFFER3: 0x83,
+
+  // Per-buffer reload/firstpage (operand = first page_num, misc = reload).
+  // STARTDUMP does not reset page_num, so a reused allocation re-zeros it here
+  // before each bank's STARTDUMP.
+  SET_RELOAD_PAGENUM0: 0x90,
+  SET_RELOAD_PAGENUM1: 0x91,
+  SET_RELOAD_PAGENUM2: 0x92,
+  SET_RELOAD_PAGENUM3: 0x93,
 } as const;
 
 // ─── Operation Dictionary ───────────────────────────────────────────────────

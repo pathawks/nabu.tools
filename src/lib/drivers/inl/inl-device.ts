@@ -145,8 +145,16 @@ export class INLDevice {
     return this.controlIn(DICT.OPER, opcode, operand, 0, returnLength);
   }
 
-  /** Read a 128-byte payload from the buffer system. */
+  /** Read a payload (≤254 bytes) from the buffer system. */
   async payloadIn(length = 128): Promise<Uint8Array> {
+    // The firmware returns exactly `length` bytes, but a single BUFF_PAYLOAD
+    // transfer can't exceed 254 (the length is an 8-bit field and the stock
+    // host caps it there). A larger buffer must be pulled in a split.
+    if (length > 254) {
+      throw new Error(
+        `INL payloadIn length ${length} exceeds the 254-byte transfer limit`,
+      );
+    }
     if (!this.device) throw new Error("Device not connected");
 
     const result = await this.device.controlTransferIn(
