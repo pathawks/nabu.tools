@@ -1,13 +1,6 @@
 /**
- * CNROM (iNES mapper 3) — fixed 16 KiB or 32 KiB PRG-ROM, up to 32 KiB
- * CHR-ROM in 8 KiB switchable banks.
- *
- * NOT HARDWARE-VALIDATED — intentionally NOT wired into the INL driver's
- * `MAPPERS` catalog or `NES_MAPPER_DB`. The implementation is unit-tested
- * (`mappers.test.ts`) and follows the same discrete bus-conflict pattern as
- * the hardware-verified GxROM/UxROM/AxROM mappers, but no CNROM cart was on
- * hand to confirm it on real silicon. Wire it into both lists once a CNROM
- * dump verifies against the database.
+ * CxROM (iNES mapper 3, the CNROM family) — fixed 16 KiB or 32 KiB
+ * PRG-ROM, up to 32 KiB CHR-ROM in 8 KiB switchable banks.
  *
  * PRG-ROM does not bank: the whole 16/32 KiB sits at CPU $8000-$FFFF and
  * is read flat like NROM. The only switchable part is CHR — a single
@@ -21,11 +14,11 @@
  * The register sits in PRG-ROM space, so CHR selects suffer a bus
  * conflict and go through `selectBank` (see `./bus-conflict`): each
  * select re-homes to a conflict-immune 0x00 write and writes the value
- * through a bank-0 byte that passes it under the AND. CNROM's PRG is
- * fixed, so "bank 0" is simply the one PRG image, read once up front and
- * reused as the gate source for every CHR select — the same shape as
- * GxROM's `dumpChrRom`, which reads PRG bank 0 as the gate then selects
- * CHR banks and reads 8 KiB at PPU $0000.
+ * through a bank-0 byte that passes it under the AND. The PRG is fixed,
+ * so "bank 0" is simply the one PRG image, read once up front and reused
+ * as the gate source for every CHR select — the same shape as GxROM's
+ * `dumpChrRom`, which reads PRG bank 0 as the gate then selects CHR banks
+ * and reads 8 KiB at PPU $0000.
  *
  * Submapper 1 boards have no bus conflicts and submapper 2 boards do;
  * `selectBank` is safe either way (a no-conflict board latches the value
@@ -45,9 +38,9 @@ import { walkBanks } from "./bank-walk";
 
 const CHR_BANK_BYTES = 8 * 1024;
 
-export const cnrom: NesMapper = {
+export const cxrom: NesMapper = {
   id: 3,
-  name: "CNROM",
+  name: "CxROM",
   defaultPrgSizes: [32, 16],
   defaultChrSizes: [32, 16, 8],
 
@@ -73,7 +66,7 @@ export const cnrom: NesMapper = {
 
     return walkBanks(
       {
-        label: "CNROM CHR",
+        label: "CxROM CHR",
         bankBytes: CHR_BANK_BYTES,
         numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
         // CHR bank N is the plain register value (PRG is unaffected).

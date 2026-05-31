@@ -4,7 +4,7 @@ import { bytesEqual } from "./bank-reliability";
 import { nrom } from "./nrom";
 import { mmc1 } from "./mmc1";
 import { uxrom } from "./uxrom";
-import { cnrom } from "./cnrom";
+import { cxrom } from "./cxrom";
 import { mmc2 } from "./mmc2";
 import { mmc3 } from "./mmc3";
 import { axrom } from "./axrom";
@@ -544,14 +544,14 @@ describe("UxROM (mapper 2)", () => {
   });
 });
 
-describe("CNROM (mapper 3)", () => {
-  // CNROM has a fixed PRG window (no banking) and switchable 8 KiB CHR
+describe("CxROM (mapper 3)", () => {
+  // CxROM has a fixed PRG window (no banking) and switchable 8 KiB CHR
   // banks. The register lives in PRG space, so a write latches
   // `cpu_value & rom_value`, where rom_value is the byte at the write
   // address in the fixed PRG image. The latched value is the CHR bank.
   // `drops` simulates a flaky clone latch by ignoring the first N
   // non-zero selects (leaving the cart on CHR bank 0).
-  class CnromBus implements NesBus {
+  class CxromBus implements NesBus {
     private chrBank = 0;
     private readonly prg: Uint8Array;
     private readonly chr: Uint8Array;
@@ -587,8 +587,8 @@ describe("CNROM (mapper 3)", () => {
 
   it("dumps the flat fixed PRG window", async () => {
     const prg = makeImage(32 * 1024);
-    const out = await cnrom.dumpPrgRom(
-      new CnromBus(prg, new Uint8Array(0)),
+    const out = await cxrom.dumpPrgRom(
+      new CxromBus(prg, new Uint8Array(0)),
       32,
     );
     expectSameBytes(out, prg);
@@ -597,7 +597,7 @@ describe("CNROM (mapper 3)", () => {
   it("dumps all four 8 KiB CHR banks", async () => {
     const prg = imageWithGate(32 * 1024); // PRG carries the write gate
     const chr = makeImage(32 * 1024); // 4 banks of 8 KiB
-    const out = await cnrom.dumpChrRom(new CnromBus(prg, chr), 32);
+    const out = await cxrom.dumpChrRom(new CxromBus(prg, chr), 32);
     expectSameBytes(out, chr);
   });
 
@@ -606,7 +606,7 @@ describe("CNROM (mapper 3)", () => {
     const chr = makeImage(32 * 1024);
     // Drop the first real select: that bank reads back as CHR bank 0, and
     // readBankWithRetry re-issues it from the conflict-immune 0x00 write.
-    const out = await cnrom.dumpChrRom(new CnromBus(prg, chr, 1), 32);
+    const out = await cxrom.dumpChrRom(new CxromBus(prg, chr, 1), 32);
     expectSameBytes(out, chr);
   });
 });

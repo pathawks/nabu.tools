@@ -58,7 +58,7 @@ export interface NesBus {
 
   /**
    * Read one CHR-ROM bank selected by latching `selectValue` into the
-   * cart's $8000-space register (the discrete bus-conflict mappers — CNROM,
+   * cart's $8000-space register (the discrete bus-conflict mappers — CxROM,
    * Color Dreams, GxROM). `bank0` is PRG bank 0, the source of the
    * bus-conflict gate byte. Optional — a device supplies this when its
    * firmware fuses the bank-select write and the CHR read into one

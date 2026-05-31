@@ -61,6 +61,16 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     dumpSupported: true,
   },
   {
+    id: 3,
+    name: "CxROM",
+    prgSizesKB: [32, 16],
+    chrSizesKB: [8, 16, 32],
+    mirroring: "selectable",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+    dumpSupported: true,
+  },
+  {
     id: 4,
     name: "MMC3 (TxROM)",
     prgSizesKB: [32, 64, 128, 256, 512],
