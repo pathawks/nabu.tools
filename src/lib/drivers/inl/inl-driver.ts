@@ -26,6 +26,7 @@ import { detectCiramMirroring } from "./detect-mirroring";
 import { nrom } from "@/lib/systems/nes/mappers/nrom";
 import { mmc1 } from "@/lib/systems/nes/mappers/mmc1";
 import { uxrom } from "@/lib/systems/nes/mappers/uxrom";
+import { mmc2 } from "@/lib/systems/nes/mappers/mmc2";
 import { mmc3 } from "@/lib/systems/nes/mappers/mmc3";
 import { axrom } from "@/lib/systems/nes/mappers/axrom";
 import { colorDreams } from "@/lib/systems/nes/mappers/color-dreams";
@@ -48,6 +49,7 @@ const MAPPERS: Record<number, NesMapper> = {
   2: uxrom,
   4: mmc3,
   7: axrom,
+  9: mmc2,
   11: colorDreams,
   66: gxrom,
 };

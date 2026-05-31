@@ -82,6 +82,16 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     dumpSupported: true,
   },
   {
+    id: 9,
+    name: "MMC2 (PxROM)",
+    prgSizesKB: [128],
+    chrSizesKB: [128],
+    mirroring: "mapper_controlled",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+    dumpSupported: true,
+  },
+  {
     id: 11,
     name: "Color Dreams",
     prgSizesKB: [32, 64, 128],

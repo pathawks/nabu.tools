@@ -5,6 +5,7 @@ import { nrom } from "./nrom";
 import { mmc1 } from "./mmc1";
 import { uxrom } from "./uxrom";
 import { cnrom } from "./cnrom";
+import { mmc2 } from "./mmc2";
 import { mmc3 } from "./mmc3";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
@@ -126,6 +127,90 @@ describe("MMC3 (mapper 4)", () => {
     const chr = makeImage(32 * 1024);
     const out = await mmc3.dumpChrRom(new Mmc3Bus(new Uint8Array(0), chr), 32);
     expectSameBytes(out, chr);
+  });
+});
+
+describe("MMC2 (mapper 9)", () => {
+  // Models MMC2: $A000 selects the 8 KiB PRG bank at $8000 (4 bits, ASIC
+  // so no bus conflict — the written value latches directly); $B000/$C000
+  // are the $0000-window CHR registers for latch states $FD/$FE. `drops`
+  // simulates a flaky clone latch by ignoring the first N non-zero $A000
+  // selects (leaving the prior bank — bank 0 for the first switch — mapped).
+  class Mmc2Bus implements NesBus {
+    private prgBank = 0;
+    private chrFD = 0; // $B000
+    private chrFE = 0; // $C000
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    private drops: number;
+    constructor(prg: Uint8Array, chr: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.chr = chr;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr === 0xa000) {
+        const bank = value & 0x0f;
+        if (bank !== 0 && this.drops > 0) {
+          this.drops--; // dropped latch: register keeps its old value
+          return;
+        }
+        this.prgBank = bank;
+      } else if (addr === 0xb000) {
+        this.chrFD = value & 0x1f;
+      } else if (addr === 0xc000) {
+        this.chrFE = value & 0x1f;
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      expect(length).toBe(0x2000); // 8 KiB switchable window
+      const off = this.prgBank * 0x2000;
+      return this.prg.slice(off, off + length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      expect(length).toBe(0x1000); // 4 KiB window
+      // The dump pins both latch registers to the same bank, making the
+      // window latch-immune — assert that so a single-register regression
+      // is caught — then read that bank regardless of latch state.
+      expect(this.chrFD).toBe(this.chrFE);
+      const off = this.chrFD * 0x1000;
+      return this.chr.slice(off, off + length);
+    }
+  }
+
+  it("walks all sixteen 8 KiB PRG banks via $A000", async () => {
+    const prg = makeImage(128 * 1024);
+    const out = await mmc2.dumpPrgRom(new Mmc2Bus(prg, new Uint8Array(0)), 128);
+    expectSameBytes(out, prg);
+  });
+
+  it("pins both latch registers and walks all 32 CHR banks via $0000", async () => {
+    const chr = makeImage(128 * 1024);
+    const out = await mmc2.dumpChrRom(new Mmc2Bus(new Uint8Array(0), chr), 128);
+    expectSameBytes(out, chr);
+  });
+
+  it("recovers from a dropped PRG bank-select via the bank-0 retry", async () => {
+    const prg = makeImage(128 * 1024);
+    // Drop the first real ($A000) select: bank 1 reads back as bank 0, and
+    // readBankWithRetry re-issues it.
+    const out = await mmc2.dumpPrgRom(
+      new Mmc2Bus(prg, new Uint8Array(0), 1),
+      128,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const noPpu: NesBus = {
+      setup: async () => {},
+      writeCpu: async () => {},
+      readCpu: async () => new Uint8Array(0),
+    };
+    await expect(mmc2.dumpChrRom(noPpu, 128)).rejects.toThrow(/PPU-bus/);
   });
 });
 
