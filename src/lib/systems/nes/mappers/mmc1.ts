@@ -39,7 +39,7 @@
 
 import type { NesBus } from "../bus";
 import type { NesMapper } from "./types";
-import { readBankWithRetry } from "./bank-reliability";
+import { walkBanks } from "./bank-walk";
 
 const CTRL_REG = 0x8000;
 const CHR0_REG = 0xa000;
@@ -115,21 +115,12 @@ export const mmc1: NesMapper = {
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();
     await init(bus);
-
-    const totalBytes = sizeKB * 1024;
-    const numBanks = totalBytes / PRG_BANK_BYTES;
-    const out = new Uint8Array(totalBytes);
-
-    // A dropped serial-register write leaves the cart on a stale bank
-    // (it reads back as bank 0); re-issue the select + re-read, as the
-    // other bank-switched mappers do.
-    let bank0: Uint8Array | null = null;
-    for (let bank = 0; bank < numBanks; bank++) {
-      const offset = bank * PRG_BANK_BYTES;
-      const chunk = await readBankWithRetry({
-        label: `MMC1 PRG bank ${bank}`,
-        reference: bank0,
-        attempt: async () => {
+    return walkBanks(
+      {
+        label: "MMC1 PRG",
+        bankBytes: PRG_BANK_BYTES,
+        numBanks: (sizeKB * 1024) / PRG_BANK_BYTES,
+        readBank: async (bank) => {
           // Select the 32 KiB bank — in 32 KiB PRG mode the bank
           // register's LSB is ignored, so shift the index up by one.
           await writeReg(bus, PRG_REG, bank << 1);
@@ -140,13 +131,9 @@ export const mmc1: NesMapper = {
           await writeReg(bus, CTRL_REG, CTRL_DUMP_MODE);
           return bus.readCpu(0x8000, PRG_BANK_BYTES);
         },
-      });
-      if (bank === 0) bank0 = chunk;
-      out.set(chunk, offset);
-      onProgress?.(offset + PRG_BANK_BYTES, totalBytes);
-    }
-
-    return out;
+      },
+      onProgress,
+    );
   },
 
   async dumpChrRom(bus, sizeKB, onProgress) {
@@ -157,24 +144,24 @@ export const mmc1: NesMapper = {
       );
     }
 
+    const readPpu = bus.readPpu.bind(bus);
+
     await bus.setup();
     await init(bus);
 
-    const totalBytes = sizeKB * 1024;
-    const numBanks = totalBytes / CHR_BANK_BYTES;
-    const out = new Uint8Array(totalBytes);
-
-    for (let bank = 0; bank < numBanks; bank++) {
-      // 4 KiB CHR mode: load each window independently.
-      await writeReg(bus, CHR0_REG, bank * 2);
-      await writeReg(bus, CHR1_REG, bank * 2 + 1);
-
-      const offset = bank * CHR_BANK_BYTES;
-      const chunk = await bus.readPpu(0x0000, CHR_BANK_BYTES);
-      out.set(chunk, offset);
-      onProgress?.(offset + CHR_BANK_BYTES, totalBytes);
-    }
-
-    return out;
+    return walkBanks(
+      {
+        label: "MMC1 CHR",
+        bankBytes: CHR_BANK_BYTES,
+        numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
+        readBank: async (bank) => {
+          // 4 KiB CHR mode: load each window independently.
+          await writeReg(bus, CHR0_REG, bank * 2);
+          await writeReg(bus, CHR1_REG, bank * 2 + 1);
+          return readPpu(0x0000, CHR_BANK_BYTES);
+        },
+      },
+      onProgress,
+    );
   },
 };

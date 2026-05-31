@@ -40,8 +40,8 @@
  */
 
 import type { NesMapper } from "./types";
-import { selectBank } from "./bus-conflict";
-import { readBankWithRetry } from "./bank-reliability";
+import { readLatchedChrBank } from "./bus-conflict";
+import { walkBanks } from "./bank-walk";
 
 const CHR_BANK_BYTES = 8 * 1024;
 
@@ -63,45 +63,24 @@ export const cnrom: NesMapper = {
 
   async dumpChrRom(bus, sizeKB, onProgress) {
     if (sizeKB === 0) return new Uint8Array(0);
-    if (!bus.readPpu) {
-      throw new Error(
-        "CNROM (mapper 3) CHR-ROM dump requires a PPU-bus read primitive, which this driver does not expose. Provide a driver-specific `dumpChrRom` override for mapper 3.",
-      );
-    }
-    const readPpu = bus.readPpu.bind(bus);
-
     await bus.setup();
 
-    const totalBytes = sizeKB * 1024;
-    const numBanks = totalBytes / CHR_BANK_BYTES;
-    const out = new Uint8Array(totalBytes);
-
-    // PRG is fixed, so the one PRG image is the gate source for every CHR
-    // select — read it once up front. The leading 0x00 write is
-    // conflict-immune and selects CHR bank 0 to start from a known state.
+    // PRG is fixed, so the one PRG image is the bus-conflict gate for every
+    // CHR select — read it once up front. The leading 0x00 write is
+    // conflict-immune and starts from CHR bank 0.
     await bus.writeCpu(0x8000, 0x00);
-    const prg = await bus.readCpu(0x8000, 0x8000);
+    const prgGate = await bus.readCpu(0x8000, 0x8000);
 
-    // A dropped CHR select on a clone cart reads back as CHR bank 0 — the
-    // same dropout signature the bank-switched mappers recover from. CHR is
-    // CNROM's only banked region, so retry it the same way.
-    let chr0: Uint8Array | null = null;
-    for (let bank = 0; bank < numBanks; bank++) {
-      const offset = bank * CHR_BANK_BYTES;
-      const chunk = await readBankWithRetry({
-        label: `CNROM CHR bank ${bank}`,
-        reference: chr0,
-        attempt: async () => {
-          // CHR bank N is the plain register value (PRG is unaffected).
-          await selectBank(bus, bank, prg);
-          return readPpu(0x0000, CHR_BANK_BYTES);
-        },
-      });
-      if (bank === 0) chr0 = chunk;
-      out.set(chunk, offset);
-      onProgress?.(offset + CHR_BANK_BYTES, totalBytes);
-    }
-
-    return out;
+    return walkBanks(
+      {
+        label: "CNROM CHR",
+        bankBytes: CHR_BANK_BYTES,
+        numBanks: (sizeKB * 1024) / CHR_BANK_BYTES,
+        // CHR bank N is the plain register value (PRG is unaffected).
+        readBank: (bank) =>
+          readLatchedChrBank(bus, bank, prgGate, CHR_BANK_BYTES),
+      },
+      onProgress,
+    );
   },
 };

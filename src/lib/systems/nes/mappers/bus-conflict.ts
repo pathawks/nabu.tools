@@ -53,3 +53,32 @@ export async function selectBank(
   const gate = findWriteGate(bank0, value);
   await bus.writeCpu(gate >= 0 ? 0x8000 + gate : 0x8000, value);
 }
+
+/**
+ * Read one CHR-ROM bank selected by latching `value`, using whichever CHR
+ * path the bus offers. A device whose firmware fuses the bank-select write
+ * and the read — and so exposes no standalone PPU read — implements the
+ * optional `readChrBankLatched` capability; everything else selects the bank
+ * with `selectBank` and reads the window via `readPpu`. This is the
+ * read-side mirror of the optional-capability pattern MMC1 uses for writes
+ * (`writeSerialRegister`), so the discrete CHR-ROM mappers stay
+ * device-agnostic.
+ */
+export async function readLatchedChrBank(
+  bus: NesBus,
+  value: number,
+  bank0: Uint8Array,
+  length: number,
+): Promise<Uint8Array> {
+  if (bus.readChrBankLatched) {
+    return bus.readChrBankLatched(value, bank0, length);
+  }
+  if (!bus.readPpu) {
+    throw new Error(
+      "CHR-ROM dump needs either a PPU-bus read (`readPpu`) or the fused " +
+        "`readChrBankLatched` capability; this driver exposes neither.",
+    );
+  }
+  await selectBank(bus, value, bank0);
+  return bus.readPpu(0x0000, length);
+}

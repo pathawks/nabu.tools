@@ -664,3 +664,41 @@ describe("AxROM (mapper 7)", () => {
     expect(out.length).toBe(0);
   });
 });
+
+describe("readChrBankLatched seam (fused-CHR devices)", () => {
+  // A device whose firmware fuses the CHR bank-select write and the read
+  // into one operation (like the RetroBlaster's 0x67) exposes no standalone
+  // readPpu — only readChrBankLatched. The shared bus-conflict CHR-ROM
+  // mappers must dump through this path too, not just the readPpu fallback.
+  class FusedChrBus implements NesBus {
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    constructor(prg: Uint8Array, chr: Uint8Array) {
+      this.prg = prg;
+      this.chr = chr;
+    }
+    async setup() {}
+    async writeCpu() {}
+    async readCpu(_addr: number, length: number) {
+      // PRG bank 0, read once as the bus-conflict gate source.
+      return this.prg.slice(0, length);
+    }
+    async readChrBankLatched(
+      selectValue: number,
+      _bank0: Uint8Array,
+      length: number,
+    ) {
+      // GxROM latches the CHR bank in bits 1-0 of the written value.
+      const off = (selectValue & 0x03) * 0x2000;
+      return this.chr.slice(off, off + length);
+    }
+    // intentionally no readPpu — forces the fused-capability path
+  }
+
+  it("dumps GxROM CHR through the fused capability, no readPpu", async () => {
+    const prg = imageWithGate(32 * 1024);
+    const chr = makeImage(32 * 1024); // 4 banks of 8 KiB
+    const out = await gxrom.dumpChrRom(new FusedChrBus(prg, chr), 32);
+    expectSameBytes(out, chr);
+  });
+});

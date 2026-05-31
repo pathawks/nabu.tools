@@ -14,7 +14,7 @@
  */
 
 import type { NesMapper } from "./types";
-import { readBankWithRetry } from "./bank-reliability";
+import { walkBanks } from "./bank-walk";
 
 const BANK_SELECT = 0x8000;
 const BANK_DATA = 0x8001;
@@ -68,33 +68,21 @@ export const mmc3: NesMapper = {
     await initMmc3(bus);
 
     // Walk PRG one 8 KiB bank at a time — MMC3's PRG bank granularity, and
-    // the granularity at which clone carts drop a bank-select latch. Map
-    // each bank to $8000 via R6 and read 8 KiB there. Reading per-bank lets
-    // `readBankWithRetry` spot a bank that came back as a verbatim bank 0
-    // (the dropout signature) and re-select + re-read just that bank; a
-    // clean read returns immediately and costs nothing.
+    // the granularity at which clone carts drop a bank-select latch.
     const BANK = 8 * 1024;
-    const totalBytes = sizeKB * 1024;
-    const numBanks = totalBytes / BANK;
-    const out = new Uint8Array(totalBytes);
-
-    let bank0: Uint8Array | null = null;
-    for (let bank = 0; bank < numBanks; bank++) {
-      const offset = bank * BANK;
-      const chunk = await readBankWithRetry({
-        label: `MMC3 PRG bank ${bank}`,
-        reference: bank0,
-        attempt: async () => {
+    return walkBanks(
+      {
+        label: "MMC3 PRG",
+        bankBytes: BANK,
+        numBanks: (sizeKB * 1024) / BANK,
+        // Map bank N to $8000 via R6.
+        readBank: async (bank) => {
           await selectPrgBank(bus, bank);
           return bus.readCpu(0x8000, BANK);
         },
-      });
-      if (bank === 0) bank0 = chunk;
-      out.set(chunk, offset);
-      onProgress?.(offset + BANK, totalBytes);
-    }
-
-    return out;
+      },
+      onProgress,
+    );
   },
 
   async dumpChrRom(bus, sizeKB, onProgress) {
@@ -105,28 +93,28 @@ export const mmc3: NesMapper = {
       );
     }
 
+    const readPpu = bus.readPpu.bind(bus);
+
     await bus.setup();
     await initMmc3(bus);
 
     // Walk CHR in 4 KiB outer iterations: R0=bank*2, R1=bank*2+1
     // (the bank-data register stores 2 KiB units, so shift left by 1).
     const OUTER = 4 * 1024;
-    const totalBytes = sizeKB * 1024;
-    const numOuter = totalBytes / OUTER;
-    const out = new Uint8Array(totalBytes);
-
-    for (let i = 0; i < numOuter; i++) {
-      await bus.writeCpu(BANK_SELECT, 0x00);
-      await bus.writeCpu(BANK_DATA, (i * 2) << 1);
-      await bus.writeCpu(BANK_SELECT, 0x01);
-      await bus.writeCpu(BANK_DATA, (i * 2 + 1) << 1);
-
-      const offset = i * OUTER;
-      const chunk = await bus.readPpu(0x0000, OUTER);
-      out.set(chunk, offset);
-      onProgress?.(offset + OUTER, totalBytes);
-    }
-
-    return out;
+    return walkBanks(
+      {
+        label: "MMC3 CHR",
+        bankBytes: OUTER,
+        numBanks: (sizeKB * 1024) / OUTER,
+        readBank: async (i) => {
+          await bus.writeCpu(BANK_SELECT, 0x00);
+          await bus.writeCpu(BANK_DATA, (i * 2) << 1);
+          await bus.writeCpu(BANK_SELECT, 0x01);
+          await bus.writeCpu(BANK_DATA, (i * 2 + 1) << 1);
+          return readPpu(0x0000, OUTER);
+        },
+      },
+      onProgress,
+    );
   },
 };

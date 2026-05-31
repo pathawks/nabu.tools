@@ -57,6 +57,23 @@ export interface NesBus {
   ): Promise<Uint8Array>;
 
   /**
+   * Read one CHR-ROM bank selected by latching `selectValue` into the
+   * cart's $8000-space register (the discrete bus-conflict mappers — CNROM,
+   * Color Dreams, GxROM). `bank0` is PRG bank 0, the source of the
+   * bus-conflict gate byte. Optional — a device supplies this when its
+   * firmware fuses the bank-select write and the CHR read into one
+   * operation, so it can't expose a standalone `readPpu`. Mappers reach it
+   * through the shared `readLatchedChrBank` helper, which falls back to
+   * `selectBank` + `readPpu` when it's absent — the same optional-capability
+   * shape as `readPpu` and `writeSerialRegister`.
+   */
+  readChrBankLatched?(
+    selectValue: number,
+    bank0: Uint8Array,
+    length: number,
+  ): Promise<Uint8Array>;
+
+  /**
    * Atomically load a serially-shifted mapper register: clock the low 5
    * bits of `value` into the shift register selected by `addr`, as a single
    * unit. Optional — a driver supplies this only when its transport can't

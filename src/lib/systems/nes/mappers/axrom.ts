@@ -31,7 +31,7 @@
 
 import type { NesMapper } from "./types";
 import { selectBank } from "./bus-conflict";
-import { readBankWithRetry } from "./bank-reliability";
+import { walkBanks } from "./bank-walk";
 
 const PRG_BANK_BYTES = 32 * 1024;
 
@@ -43,37 +43,20 @@ export const axrom: NesMapper = {
 
   async dumpPrgRom(bus, sizeKB, onProgress) {
     await bus.setup();
-
-    const totalBytes = sizeKB * 1024;
-    const numBanks = totalBytes / PRG_BANK_BYTES;
-    const out = new Uint8Array(totalBytes);
-
-    // Land on bank 0 and read it — both the first chunk and the dropout
-    // reference. The bank latch is volatile RAM that survives the
-    // dumper's SETUP_NES, so a 0x00 write (conflict-immune) forces a
-    // known starting bank.
-    await bus.writeCpu(0x8000, 0x00);
-    const bank0 = await bus.readCpu(0x8000, PRG_BANK_BYTES);
-    out.set(bank0, 0);
-    onProgress?.(PRG_BANK_BYTES, totalBytes);
-
-    for (let bank = 1; bank < numBanks; bank++) {
-      const offset = bank * PRG_BANK_BYTES;
-      const chunk = await readBankWithRetry({
-        label: `AxROM PRG bank ${bank}`,
-        reference: bank0,
-        attempt: async () => {
-          // PRG bank N in bits 0-2 — the select value is the bank index
-          // (mirroring bit 4 stays 0).
-          await selectBank(bus, bank, bank0);
+    return walkBanks(
+      {
+        label: "AxROM PRG",
+        bankBytes: PRG_BANK_BYTES,
+        numBanks: (sizeKB * 1024) / PRG_BANK_BYTES,
+        // PRG bank N in bits 0-2 — the select value is the bank index
+        // (mirroring bit 4 stays 0).
+        readBank: async (bank, gate) => {
+          await selectBank(bus, bank, gate);
           return bus.readCpu(0x8000, PRG_BANK_BYTES);
         },
-      });
-      out.set(chunk, offset);
-      onProgress?.(offset + PRG_BANK_BYTES, totalBytes);
-    }
-
-    return out;
+      },
+      onProgress,
+    );
   },
 
   async dumpChrRom(_bus, sizeKB) {
