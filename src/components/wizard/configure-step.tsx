@@ -168,23 +168,6 @@ export function ConfigureStep({
             </div>
           )}
 
-          {/* Manual config nudge — only when there are user-editable fields */}
-          {selectedSystem &&
-            autoDetected &&
-            !autoDetected.mapper &&
-            !busy &&
-            fields.some(
-              (f) => f.type !== "readonly" && f.type !== "hidden" && !f.locked,
-            ) && (
-              <div className="flex gap-2 rounded-md border border-chart-3/30 bg-chart-3/5 px-3 py-2 text-xs text-chart-3">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                <span>
-                  Mapper and ROM sizes need to be set manually. Look up your
-                  game to choose the correct settings.
-                </span>
-              </div>
-            )}
-
           {/* Config fields from system handler */}
           {selectedSystem && (
             <>
@@ -252,18 +235,20 @@ export function ConfigureStep({
                         )}
                       </>
                     ) : (
-                      <div className="flex flex-col items-center gap-2">
-                        <p className="text-center text-xs text-muted-foreground">
-                          {hotSwap
-                            ? "Insert a cartridge and click Scan."
-                            : "Insert a cartridge, then click Disconnect and reconnect."}
-                        </p>
-                        {compatibilityNote && (
-                          <p className="text-center text-[11px] text-muted-foreground/70">
-                            {compatibilityNote}
-                          </p>
-                        )}
-                      </div>
+                      <p className="text-center text-xs text-muted-foreground">
+                        {hotSwap
+                          ? "Insert a cartridge and click Scan."
+                          : "Insert a cartridge, then click Disconnect and reconnect."}
+                      </p>
+                    )}
+                    {/* Device compatibility note (e.g. a daughterboard-seating
+                        reminder) shows regardless of whether a cartridge was
+                        auto-detected, so it stays visible above the Start Dump
+                        button. */}
+                    {compatibilityNote && (
+                      <p className="text-center text-[11px] text-muted-foreground/70">
+                        {compatibilityNote}
+                      </p>
                     )}
                   </div>
                 </>
