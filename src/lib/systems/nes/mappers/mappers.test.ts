@@ -11,6 +11,7 @@ import { rambo1 } from "./rambo1";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
+import { fme7 } from "./fme7";
 import { quattro } from "./quattro";
 
 /**
@@ -786,6 +787,138 @@ describe("RAMBO-1 (mapper 64)", () => {
       readCpu: async () => new Uint8Array(0),
     };
     await expect(rambo1.dumpChrRom(noPpu, 64)).rejects.toThrow(/PPU-bus/);
+  });
+});
+
+describe("FME-7 (mapper 69)", () => {
+  // Models the two-write command/parameter protocol: $8000-$9FFF latches the
+  // command (low 4 bits), $A000-$BFFF invokes it with the parameter. Eight
+  // 1 KiB CHR windows (commands $0-$7), 8 KiB PRG bank at $8000 via $9, and
+  // the command-$8 $6000 window — RAM only when bits 7+6 are both set
+  // ($C0|bank), open bus when RAM is selected but disabled ($40-$7F), a ROM
+  // bank otherwise. The model THROWS on the two write-hazards the dumper
+  // must never hit: IRQ commands $D-$F, and any CPU write at or above $C000
+  // (the 5B's expansion-audio ports live there). `drops` simulates a
+  // flaky latch by ignoring the first N non-zero PRG bank parameters.
+  class Fme7Bus implements NesBus {
+    private command = 0;
+    private r = new Array<number>(13).fill(0); // commands $0-$C
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    private readonly wram: Uint8Array;
+    private drops: number;
+    constructor(
+      prg: Uint8Array,
+      chr: Uint8Array,
+      wram = new Uint8Array(0),
+      drops = 0,
+    ) {
+      this.prg = prg;
+      this.chr = chr;
+      this.wram = wram;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr >= 0xc000) {
+        throw new Error(
+          "CPU write at/above $C000 — the 5B's audio ports; the dumper must not write here",
+        );
+      }
+      if (addr < 0xa000) {
+        expect(addr).toBeGreaterThanOrEqual(0x8000);
+        this.command = value & 0x0f;
+        return;
+      }
+      if (this.command >= 0x0d) {
+        throw new Error(
+          "IRQ command $D-$F invoked — the dumper must not touch the IRQ registers",
+        );
+      }
+      if (this.command === 0x09 && value !== 0 && this.drops > 0) {
+        this.drops--; // dropped latch: register keeps its old value
+        return;
+      }
+      this.r[this.command] = value;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(length).toBe(8 * 1024);
+      if (addr === 0x6000) {
+        const reg8 = this.r[0x08];
+        // Bit 6 selects RAM, bit 7 enables the chip; both → WRAM (the
+        // single 8 KiB chip on real carts ignores the bank bits).
+        if ((reg8 & 0xc0) === 0xc0) return this.wram.slice(0, length);
+        // RAM selected but disabled → open bus.
+        if (reg8 & 0x40) return new Uint8Array(length).fill(0xff);
+        const off = (reg8 & 0x3f) * 0x2000;
+        return this.prg.slice(off, off + length);
+      }
+      expect(addr).toBe(0x8000);
+      const off = this.r[0x09] * 0x2000;
+      return this.prg.slice(off, off + length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      expect(length).toBe(8 * 1024);
+      // Each of the eight 1 KiB windows resolves independently.
+      const out = new Uint8Array(length);
+      for (let w = 0; w < 8; w++) {
+        const off = this.r[w] * 0x400;
+        out.set(this.chr.slice(off, off + 0x400), w * 0x400);
+      }
+      return out;
+    }
+  }
+
+  it("walks all PRG banks via command $9 (128 KiB)", async () => {
+    const prg = makeImage(128 * 1024); // 16 banks of 8 KiB
+    const out = await fme7.dumpPrgRom(new Fme7Bus(prg, new Uint8Array(0)), 128);
+    expectSameBytes(out, prg);
+  });
+
+  it("walks CHR through the eight 1 KiB windows (256 KiB)", async () => {
+    const chr = makeImage(256 * 1024);
+    const out = await fme7.dumpChrRom(new Fme7Bus(new Uint8Array(0), chr), 256);
+    expectSameBytes(out, chr);
+  });
+
+  it("brackets the save read: $C0 exposes WRAM, $00 re-disables it after", async () => {
+    const prg = makeImage(16 * 1024);
+    // Inverted so WRAM can't collide with ROM bank 0 (makeImage is
+    // deterministic — a plain 8 KiB image would equal PRG's first bank).
+    const wram = Uint8Array.from(makeImage(8 * 1024), (b) => b ^ 0xff);
+    const bus = new Fme7Bus(prg, new Uint8Array(0), wram);
+    const out = await fme7.dumpSave!(bus, 8);
+    expectSameBytes(out, wram);
+    // The trailing $00 must have re-parked the window ROM-side (RAM
+    // chip-disabled), so $6000 reads ROM bank 0 again — not the WRAM.
+    expectSameBytes(
+      await bus.readCpu(0x6000, 8 * 1024),
+      prg.slice(0, 8 * 1024),
+    );
+  });
+
+  it("recovers from a dropped PRG bank latch via the bank-0 retry", async () => {
+    const prg = makeImage(128 * 1024);
+    const out = await fme7.dumpPrgRom(
+      new Fme7Bus(prg, new Uint8Array(0), new Uint8Array(0), 1),
+      128,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it("returns an empty CHR dump for CHR-RAM carts (size 0)", async () => {
+    const out = await fme7.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const noPpu: NesBus = {
+      setup: async () => {},
+      writeCpu: async () => {},
+      readCpu: async () => new Uint8Array(0),
+    };
+    await expect(fme7.dumpChrRom(noPpu, 128)).rejects.toThrow(/PPU-bus/);
   });
 });
 

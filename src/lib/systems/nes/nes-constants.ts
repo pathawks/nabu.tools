@@ -129,6 +129,16 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     maxPrgRamKB: 0,
   },
   {
+    id: 69,
+    name: "FME-7 (5A/5B)",
+    prgSizesKB: [128, 256],
+    chrSizesKB: [0, 128, 256],
+    mirroring: "mapper_controlled",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 8,
+    chrRamKB: 8,
+  },
+  {
     id: 232,
     name: "Quattro",
     prgSizesKB: [256],
