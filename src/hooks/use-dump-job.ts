@@ -52,6 +52,15 @@ export function useDumpJob(
       values: ConfigValues,
       verificationDb?: VerificationDB | null,
     ) => {
+      // One job at a time: every device protocol here is single-state, so
+      // two interleaved dumps corrupt each other on the wire. The UI gates
+      // on job state, but a stale render or double-click can race past it —
+      // refuse at the source of truth.
+      if (abortRef.current) {
+        log("A dump is already in progress.", "warn");
+        return null;
+      }
+
       const job = new DumpJobImpl(driver, system, verificationDb ?? null);
       const abort = new AbortController();
       abortRef.current = abort;
@@ -82,9 +91,16 @@ export function useDumpJob(
   );
 
   const abort = useCallback(() => {
-    abortRef.current?.abort();
-    setState("aborted");
-    log("Dump aborted", "warn");
+    if (!abortRef.current) return;
+    abortRef.current.abort();
+    // Only *request* the stop here. The in-flight dump keeps running until
+    // the driver observes the signal; DumpJobImpl emits the terminal
+    // "aborted" state (and its log line) when the promise actually unwinds.
+    // Flipping straight to "aborted" would unlock the UI while the device
+    // is still mid-dump, letting a second dump start and interleave USB
+    // operations with the first — the dual-progress-bar corruption.
+    setState("aborting");
+    log("Aborting dump...", "warn");
   }, [log]);
 
   const reset = useCallback(() => {

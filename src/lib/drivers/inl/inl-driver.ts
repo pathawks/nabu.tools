@@ -120,47 +120,59 @@ export class INLDriver implements DeviceDriver {
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
 
     // Each mapper drives the cart through the bus; `bus.setup()` (issued
-    // inside the mapper before each region) handles the reset/init.
-    const bus = new InlNesBus(this.inlDevice);
+    // inside the mapper before each region) handles the reset/init. The
+    // signal rides along so an abort interrupts per chunk, not per region.
+    const bus = new InlNesBus(this.inlDevice, signal);
     const startTime = Date.now();
     const totalBytes = (prgKB + chrKB) * 1024;
 
-    // Dump PRG-ROM
-    this.log(`Reading ${prgKB}KB PRG-ROM...`);
-    signal?.throwIfAborted();
-
-    const prgData = await mapper.dumpPrgRom(bus, prgKB, (bytesRead) => {
-      const elapsed = (Date.now() - startTime) / 1000;
-      this.progress({
-        phase: "rom",
-        bytesRead,
-        totalBytes,
-        fraction: bytesRead / totalBytes,
-        speed: elapsed > 0 ? bytesRead / elapsed : undefined,
-      });
-    });
-
-    // Dump CHR-ROM (if present)
+    let prgData: Uint8Array;
     let chrData: Uint8Array = new Uint8Array(0);
-    if (chrKB > 0) {
-      this.log(`Reading ${chrKB}KB CHR-ROM...`);
+    try {
+      // Dump PRG-ROM
+      this.log(`Reading ${prgKB}KB PRG-ROM...`);
       signal?.throwIfAborted();
 
-      chrData = await mapper.dumpChrRom(bus, chrKB, (bytesRead) => {
+      prgData = await mapper.dumpPrgRom(bus, prgKB, (bytesRead) => {
         const elapsed = (Date.now() - startTime) / 1000;
-        const totalRead = prgKB * 1024 + bytesRead;
         this.progress({
           phase: "rom",
-          bytesRead: totalRead,
+          bytesRead,
           totalBytes,
-          fraction: totalRead / totalBytes,
-          speed: elapsed > 0 ? totalRead / elapsed : undefined,
+          fraction: bytesRead / totalBytes,
+          speed: elapsed > 0 ? bytesRead / elapsed : undefined,
         });
       });
-    }
 
-    // Reset device
-    await this.inlDevice.io(IO.IO_RESET);
+      // Dump CHR-ROM (if present)
+      if (chrKB > 0) {
+        this.log(`Reading ${chrKB}KB CHR-ROM...`);
+        signal?.throwIfAborted();
+
+        chrData = await mapper.dumpChrRom(bus, chrKB, (bytesRead) => {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const totalRead = prgKB * 1024 + bytesRead;
+          this.progress({
+            phase: "rom",
+            bytesRead: totalRead,
+            totalBytes,
+            fraction: totalRead / totalBytes,
+            speed: elapsed > 0 ? totalRead / elapsed : undefined,
+          });
+        });
+      }
+    } finally {
+      // Always reset the device, including when an abort or error unwinds the
+      // dump. dumpRegion already resets the operation engine on its way out;
+      // this restores the I/O/bus layer so the *next* dump starts from a known
+      // state instead of inheriting a half-configured bus. Best-effort so a
+      // reset failure (e.g. the device was unplugged) doesn't mask the cause.
+      try {
+        await this.inlDevice.io(IO.IO_RESET);
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     this.log(
@@ -176,7 +188,7 @@ export class INLDriver implements DeviceDriver {
 
   async readSave(
     config: ReadConfig,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<Uint8Array> {
     const mapperId = (config.params.mapper as number) ?? 0;
     const sramKB = ((config.params.prgRamSizeBytes as number) ?? 8192) / 1024;
@@ -186,26 +198,36 @@ export class INLDriver implements DeviceDriver {
     const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
 
-    const bus = new InlNesBus(this.inlDevice);
+    const bus = new InlNesBus(this.inlDevice, signal);
     this.log(`Reading ${sramKB}KB SRAM...`);
 
     let data: Uint8Array;
-    if (mapper.dumpSave) {
-      data = await mapper.dumpSave(bus, sramKB);
-    } else {
-      // Default path: enable WRAM (where the mapper supports it) and read
-      // the $6000-$7FFF PRG-RAM window directly.
-      await bus.setup();
-      if (mapper.enableSram) await mapper.enableSram(bus);
-      data = await dumpRegion(this.inlDevice, {
-        sizeKB: sramKB,
-        memType: MEM.PRGRAM,
-        mapper: 0,
-        mapVar: MAPVAR.NOVAR,
-      });
+    try {
+      if (mapper.dumpSave) {
+        data = await mapper.dumpSave(bus, sramKB);
+      } else {
+        // Default path: enable WRAM (where the mapper supports it) and read
+        // the $6000-$7FFF PRG-RAM window directly.
+        await bus.setup();
+        if (mapper.enableSram) await mapper.enableSram(bus);
+        data = await dumpRegion(this.inlDevice, {
+          sizeKB: sramKB,
+          memType: MEM.PRGRAM,
+          mapper: 0,
+          mapVar: MAPVAR.NOVAR,
+          signal,
+        });
+      }
+    } finally {
+      // Reset on every exit, including an error mid-read, so the next dump
+      // isn't left inheriting a half-configured SRAM-enabled bus state.
+      try {
+        await this.inlDevice.io(IO.IO_RESET);
+      } catch {
+        /* best-effort cleanup */
+      }
     }
 
-    await this.inlDevice.io(IO.IO_RESET);
     this.log(`SRAM read complete (${data.length} bytes)`);
     return data;
   }

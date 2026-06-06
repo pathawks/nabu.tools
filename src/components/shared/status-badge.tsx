@@ -12,6 +12,7 @@ const STATUS_STYLES: Record<string, string> = {
   verifying: "border-chart-3 text-chart-3",
   complete: "border-primary text-primary",
   error: "border-destructive text-destructive",
+  aborting: "border-chart-3 text-chart-3",
   aborted: "border-chart-3 text-chart-3",
   scanning: "border-chart-3 text-chart-3",
   reading: "border-chart-3 text-chart-3",
@@ -28,6 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
   verifying: "verifying",
   complete: "complete",
   error: "error",
+  aborting: "aborting",
   aborted: "aborted",
   scanning: "scanning",
   reading: "reading",
@@ -36,7 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function StatusBadge({ state }: { state: DumpJobState | "connected" }) {
   const label = STATUS_LABELS[state] ?? state;
   const style = STATUS_STYLES[state] ?? STATUS_STYLES.idle;
-  const pulsing = ["dumping_rom", "dumping_save", "hashing", "verifying", "connecting", "detecting", "scanning", "reading"].includes(state);
+  const pulsing = ["dumping_rom", "dumping_save", "hashing", "verifying", "connecting", "detecting", "scanning", "reading", "aborting"].includes(state);
 
   return (
     <Badge variant="outline" className={`gap-1.5 ${style}`}>

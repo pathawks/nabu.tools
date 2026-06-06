@@ -56,6 +56,7 @@ const ACTIVE_STATES: ReadonlySet<DumpJobState> = new Set<DumpJobState>([
   "verifying",
   "connecting",
   "detecting",
+  "aborting",
 ]);
 const isDumping = (s: DumpJobState): boolean => ACTIVE_STATES.has(s);
 

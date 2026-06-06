@@ -12,9 +12,13 @@ import { dumpRegion } from "./inl-dump";
 
 export class InlNesBus implements NesBus {
   private readonly device: INLDevice;
+  // Forwarded to every dumpRegion so an abort interrupts reads per 128-byte
+  // chunk rather than at region boundaries.
+  private readonly signal?: AbortSignal;
 
-  constructor(device: INLDevice) {
+  constructor(device: INLDevice, signal?: AbortSignal) {
     this.device = device;
+    this.signal = signal;
   }
 
   async setup(): Promise<void> {
@@ -59,6 +63,7 @@ export class InlNesBus implements NesBus {
         mapper: 0,
         mapVar: MAPVAR.NOVAR,
         onProgress,
+        signal: this.signal,
       });
     }
 
@@ -74,6 +79,7 @@ export class InlNesBus implements NesBus {
       mapper: addrPage,
       mapVar: MAPVAR.NOVAR,
       onProgress,
+      signal: this.signal,
     });
   }
 
@@ -101,6 +107,7 @@ export class InlNesBus implements NesBus {
       mapper: 0x00,
       mapVar: MAPVAR.NOVAR,
       onProgress,
+      signal: this.signal,
     });
   }
 }

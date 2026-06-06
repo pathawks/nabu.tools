@@ -71,6 +71,11 @@ export function DumpStep({ state, progress, error, onAbort, onRetry }: DumpStepP
             {confirmAbort ? "Confirm Abort?" : "Abort"}
           </Button>
         )}
+        {state === "aborting" && (
+          <Button variant="outline" disabled>
+            Aborting...
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

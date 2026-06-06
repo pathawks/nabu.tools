@@ -145,7 +145,17 @@ export class INLDevice {
     return this.controlIn(DICT.OPER, opcode, operand, 0, returnLength);
   }
 
-  /** Read a 128-byte payload from the buffer system. */
+  /**
+   * Read a `length`-byte payload from the buffer system.
+   *
+   * The double-buffered dump protocol depends on each payload read returning
+   * exactly the requested window: the caller assembles fixed-size chunks at
+   * fixed offsets, so a short read would shift every subsequent byte. A
+   * truncated payload means the firmware's buffer pointer is out of step with
+   * the host (typically after a prior dump unwound abnormally without resetting
+   * the operation engine), so we surface it as an error and let the caller's
+   * `finally` reset and recover rather than silently writing a shifted region.
+   */
   async payloadIn(length = 128): Promise<Uint8Array> {
     if (!this.device) throw new Error("Device not connected");
 
@@ -160,11 +170,18 @@ export class INLDevice {
       length,
     );
 
-    if (!result.data) return new Uint8Array(0);
+    const received = result.data?.byteLength ?? 0;
+    if (received !== length) {
+      throw new Error(
+        `INL payload short read: expected ${length} bytes, got ${received} ` +
+          `(firmware buffer desynchronised)`,
+      );
+    }
+
     return new Uint8Array(
-      result.data.buffer,
-      result.data.byteOffset,
-      result.data.byteLength,
+      result.data!.buffer,
+      result.data!.byteOffset,
+      result.data!.byteLength,
     );
   }
 

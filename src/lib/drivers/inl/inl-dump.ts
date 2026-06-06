@@ -28,6 +28,38 @@ export interface DumpRegionOptions {
   mapper: number;
   mapVar: number;
   onProgress?: (bytesRead: number, totalBytes: number) => void;
+  /**
+   * Abort signal, checked once per 128-byte chunk. Without it an abort only
+   * lands at region boundaries — tens of seconds on a large region — while
+   * the UI already reports the dump stopped. The throw unwinds through the
+   * `finally` below, so the operation engine is reset on the way out.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Reset the firmware's dump-operation engine and discard any allocated
+ * buffers, returning it to a known-idle state.
+ *
+ * This is the lockstep-recovery primitive: the host and firmware track the
+ * dump position jointly (the host polls `GET_CUR_BUFF_STATUS` and pulls each
+ * 128-byte payload; the firmware advances its page/buffer pointer in step).
+ * If a dump unwinds abnormally — a poll timeout, a device error byte, a
+ * `payloadIn` fault, or an abort surfacing as a throw — the firmware is left
+ * mid-region in `STARTDUMP`/`DUMPING` with buffers still allocated and its
+ * read pointer offset from where the next dump assumes it is. Reading payload
+ * against that stale pointer is exactly what yields a byte-SHIFTED next dump.
+ *
+ * Issuing `SET_OPERATION RESET` + `RAW_BUFFER_RESET` clears the operation
+ * state and frees the buffers, re-synchronising host and firmware. It runs at
+ * the start of every region (so a prior abnormal exit can't poison a fresh
+ * dump) and in `dumpRegion`'s `finally` (so an abnormal exit cleans up after
+ * itself). It is best-effort: if the reset transfer itself throws (e.g. the
+ * device was unplugged), we swallow it so the original error still propagates.
+ */
+async function resetDumpEngine(device: INLDevice): Promise<void> {
+  await device.operation(OPER.SET_OPERATION, STATUS.RESET);
+  await device.buffer(BUFFER.RAW_BUFFER_RESET);
 }
 
 /**
@@ -85,62 +117,77 @@ export async function dumpRegion(
   const totalBytes = opts.sizeKB * 1024;
   const numChunks = totalBytes / BUFF_SIZE;
 
-  // Reset buffers
-  await device.operation(OPER.SET_OPERATION, STATUS.RESET);
-  await device.buffer(BUFFER.RAW_BUFFER_RESET);
+  // Reset the operation engine before configuring this region. Doing this at
+  // the *start* means even if a prior dumpRegion exited abnormally and somehow
+  // skipped its own cleanup, we re-synchronise here before reading any payload.
+  await resetDumpEngine(device);
 
-  // Allocate 2x128B double buffers
-  await allocateBuffers(device);
-
-  // Configure both buffers: memory type + part number. PRG-RAM is
-  // SRAM-backed; every other region we read is mask ROM. The part must match
-  // the region so the firmware drives the right chip — a save read with the
-  // mask-ROM part would target the wrong device.
-  const part = opts.memType === MEM.PRGRAM ? PART.SRAM : PART.MASKROM;
-  const memPart = (opts.memType << 8) | part;
-  await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 0);
-  await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 1);
-
-  // Configure both buffers: mapper + variant
-  const mapVar = (opts.mapper << 8) | opts.mapVar;
-  await device.buffer(BUFFER.SET_MAP_N_MAPVAR, mapVar, 0);
-  await device.buffer(BUFFER.SET_MAP_N_MAPVAR, mapVar, 1);
-
-  // Start dumping
-  await device.operation(OPER.SET_OPERATION, STATUS.STARTDUMP);
-
-  // Read data in 128-byte chunks
   const result = new Uint8Array(totalBytes);
   let bytesRead = 0;
 
-  for (let i = 0; i < numChunks; i++) {
-    // Poll until the current buffer reports DUMPED. Each poll is a USB
-    // round-trip (so the loop yields), but a stalled transfer or device
-    // fault could otherwise never report DUMPED and hang the dump forever —
-    // bound the wait and surface it as an error instead.
-    const deadline = Date.now() + POLL_TIMEOUT_MS;
-    let status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
-    while (status !== STATUS.DUMPED) {
-      if (Date.now() > deadline) {
-        throw new Error(
-          `INL dump stalled: buffer ${i + 1}/${numChunks} never reported DUMPED ` +
-            `within ${POLL_TIMEOUT_MS}ms (last status 0x${status.toString(16)})`,
-        );
+  try {
+    // Allocate 2x128B double buffers
+    await allocateBuffers(device);
+
+    // Configure both buffers: memory type + part number. PRG-RAM is
+    // SRAM-backed; every other region we read is mask ROM. The part must match
+    // the region so the firmware drives the right chip — a save read with the
+    // mask-ROM part would target the wrong device.
+    const part = opts.memType === MEM.PRGRAM ? PART.SRAM : PART.MASKROM;
+    const memPart = (opts.memType << 8) | part;
+    await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 0);
+    await device.buffer(BUFFER.SET_MEM_N_PART, memPart, 1);
+
+    // Configure both buffers: mapper + variant
+    const mapVar = (opts.mapper << 8) | opts.mapVar;
+    await device.buffer(BUFFER.SET_MAP_N_MAPVAR, mapVar, 0);
+    await device.buffer(BUFFER.SET_MAP_N_MAPVAR, mapVar, 1);
+
+    // Start dumping
+    await device.operation(OPER.SET_OPERATION, STATUS.STARTDUMP);
+
+    // Read data in 128-byte chunks
+    for (let i = 0; i < numChunks; i++) {
+      opts.signal?.throwIfAborted();
+
+      // Poll until the current buffer reports DUMPED. Each poll is a USB
+      // round-trip (so the loop yields), but a stalled transfer or device
+      // fault could otherwise never report DUMPED and hang the dump forever —
+      // bound the wait and surface it as an error instead.
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
+      let status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
+      while (status !== STATUS.DUMPED) {
+        // Keep aborts responsive even while waiting out a stalled buffer —
+        // otherwise an abort during a stall only lands at the poll timeout.
+        opts.signal?.throwIfAborted();
+        if (Date.now() > deadline) {
+          throw new Error(
+            `INL dump stalled: buffer ${i + 1}/${numChunks} never reported DUMPED ` +
+              `within ${POLL_TIMEOUT_MS}ms (last status 0x${status.toString(16)})`,
+          );
+        }
+        status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
       }
-      status = await device.buffer(BUFFER.GET_CUR_BUFF_STATUS);
+
+      // Read the payload
+      const chunk = await device.payloadIn(BUFF_SIZE);
+      result.set(chunk, bytesRead);
+      bytesRead += chunk.length;
+
+      opts.onProgress?.(bytesRead, totalBytes);
     }
-
-    // Read the payload
-    const chunk = await device.payloadIn(BUFF_SIZE);
-    result.set(chunk, bytesRead);
-    bytesRead += chunk.length;
-
-    opts.onProgress?.(bytesRead, totalBytes);
+  } finally {
+    // Always return the operation engine to idle, including on a poll
+    // timeout, device error, payload fault, or abort that surfaces as a
+    // throw. Skipping this is what leaves the firmware mid-region and
+    // byte-shifts the *next* dump. Best-effort: if the reset itself throws
+    // (e.g. the device was unplugged), swallow it so the original error wins.
+    try {
+      await resetDumpEngine(device);
+    } catch {
+      /* best-effort cleanup */
+    }
   }
-
-  // Reset
-  await device.operation(OPER.SET_OPERATION, STATUS.RESET);
-  await device.buffer(BUFFER.RAW_BUFFER_RESET);
 
   return result;
 }

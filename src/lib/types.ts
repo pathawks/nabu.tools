@@ -376,6 +376,9 @@ export type DumpJobState =
   | "dumping_save"
   | "hashing"
   | "verifying"
+  // Abort requested; the in-flight dump is still unwinding. Terminal
+  // "aborted" only fires once the dump promise has actually settled.
+  | "aborting"
   | "complete"
   | "error"
   | "aborted";
