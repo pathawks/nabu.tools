@@ -56,7 +56,12 @@ function IconCanvas({ cell }: { cell: IconCell }) {
 
 interface CompleteStepProps {
   result: DumpResult;
-  title: string;
+  /**
+   * Cartridge/config title, when one exists. Leave undefined for title-less
+   * systems (e.g. NES) so the unverified-name fallback can engage — a parent
+   * defaulting this to a placeholder string would mask it.
+   */
+  title?: string;
   fileExtension: string;
   deviceInfo: DeviceInfo | null;
   cartInfo: CartridgeInfo | null;
@@ -102,7 +107,16 @@ export function CompleteStep({
       ? verifiedName
       : "No match in verification database";
 
-  const baseName = verifiedName ?? (title || "dump");
+  // Unverified dumps from systems without cart titles still deserve a
+  // distinctive filename: tag them with the system name and the content
+  // CRC32 — e.g. "NES Famicom (Unverified) 1234ABCD" — so consecutive
+  // unidentified dumps don't collide and the hash is recoverable from the
+  // name (CRC32 is the 8-hex-digit identifier the verification world
+  // quotes). `saveFile`'s shared sanitizer strips reserved characters like
+  // the display name's "/" and tidies the whitespace.
+  const unverifiedName = `${systemDisplayName} (Unverified) ${hexStr(result.hashes.crc32)}`;
+
+  const baseName = verifiedName ?? (title || unverifiedName);
   // Save-only systems (e.g. PS1 memory card) have no verification DB and
   // their handlers build a sensible date-stamped filename in `buildOutputFile`.
   // ROM systems use the cartridge title (or verified name when available).
@@ -111,7 +125,7 @@ export function CompleteStep({
       ? verifiedName + fileExtension
       : saveOnly && result.rom
         ? result.rom.filename
-        : (title || "dump") + fileExtension;
+        : (title || unverifiedName) + fileExtension;
   const saveFilename = baseName + ".sav";
 
   const save = useCallback(

@@ -6,7 +6,11 @@ const hasFilePicker = "showSaveFilePicker" in window;
 const RESERVED_CHARS = /[<>:"/\\|?*]/g;
 
 function sanitizeFilename(name: string): string {
-  return name.replace(RESERVED_CHARS, "").trim() || "dump";
+  // Collapse whitespace runs left behind by stripped characters
+  // (e.g. "NES / Famicom" → "NES  Famicom" → "NES Famicom").
+  return (
+    name.replace(RESERVED_CHARS, "").replace(/\s+/g, " ").trim() || "dump"
+  );
 }
 
 /**

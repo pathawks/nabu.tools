@@ -552,7 +552,10 @@ function App() {
                 {dumpJob.state === "complete" && dumpJob.result && (
                   <CompleteStep
                     result={dumpJob.result}
-                    title={(configValues.title as string) ?? "dump"}
+                    // No placeholder default: CompleteStep owns the fallback
+                    // chain (verified name → title → "(Unverified) <CRC32>"),
+                    // and a truthy placeholder here would short-circuit it.
+                    title={configValues.title as string | undefined}
                     fileExtension={selectedSystem?.fileExtension ?? ""}
                     deviceInfo={connection.deviceInfo}
                     cartInfo={autoDetected}
