@@ -38,4 +38,13 @@ describe("INLDevice.payloadIn desync guard", () => {
     const inl = deviceReturning(0);
     await expect(inl.payloadIn(128)).rejects.toThrow(/short read/i);
   });
+
+  it("rejects transfers over the 254-byte firmware limit", async () => {
+    // The firmware's BUFF_PAYLOAD transfer length is an 8-bit value and the
+    // stock host caps a single payload at 254 bytes; a bigger buffer would
+    // have to be pulled in a split, so guard against an oversized read.
+    const inl = deviceReturning(255);
+    await expect(inl.payloadIn(255)).rejects.toThrow(/254/);
+    await expect(inl.payloadIn(512)).rejects.toThrow(/254/);
+  });
 });

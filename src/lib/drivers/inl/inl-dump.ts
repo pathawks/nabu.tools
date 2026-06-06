@@ -4,7 +4,45 @@
  * Implements the buffer allocation, STARTDUMP, poll-and-read sequence
  * shared by all NES mappers.
  *
- * Reference: host/scripts/app/buffers.lua and host/scripts/app/dump.lua
+ * The firmware's dump engine is mapper-agnostic: it streams a fixed CPU/PPU
+ * address window (NESCPU_4KB / NESPPU_1KB / PRGRAM) and knows nothing about
+ * cart banking — its few "native" mappers (MAP30/A53/DPROM) are the vendor's
+ * flashable homebrew boards, a flash write/read-back path rather than a
+ * general dump facility. Banking is host-driven in the shared mapper layer.
+ *
+ * ── Why 2×128B buffers, and why this is as fast as this firmware dumps ──
+ *
+ * The firmware allocates buffers from a 512B raw pool (16 banks × 32B) and
+ * is compiled NUM_BUFFERS_4, so larger layouts (4×128B) are accepted — but
+ * not faster. A 4×128B layout plus a per-region setup hoist (allocate once,
+ * rewind page_num + re-STARTDUMP per bank) was implemented and benchmarked
+ * on hardware in 2026-06 against NROM, 8KB-banked, and small-CHR-window
+ * carts: byte-identical output, wall-clock parity on every cart. The
+ * firmware source explains why:
+ *
+ * - The pipeline is hard-limited to ONE buffer ahead. buffer.c's DUMPING
+ *   state machine only dumps the next buffer after the host's IN transfer
+ *   for the current one completes (the USB_UNLOADING gate), no matter how
+ *   many buffers are allocated — extra buffers are never filled ahead.
+ * - Wall-clock is dominated by the two control transfers per 128B chunk
+ *   (status poll + payload, ≈9ms ≈ 13KB/s end to end). The dozen-or-so
+ *   tiny setup transfers per region are off the critical path, which is
+ *   why hoisting them gains nothing.
+ * - Bigger chunks can't help either. A buffer fills within a single 256B
+ *   page (the address high byte is latched once for the whole fill; the
+ *   buffer's id supplies the starting low byte), so only sizes that tile a
+ *   page exactly are valid: 128B half-pages or a full 256B page. 254B isn't
+ *   even allocatable (buffers are whole 32B raw banks), a 224B buffer would
+ *   silently skip bytes 224-255 of every page, and 256B is doubly dead — a
+ *   full buffer sets last_idx=255, which the firmware's uint8 fill loop
+ *   (`for (i=0; i<=last_idx; i++)`) never exits, and V-USB caps a control
+ *   read at 254 bytes so it couldn't be pulled in one transfer anyway.
+ *
+ * So the per-chunk round-trip is this firmware's floor; faster dumps need
+ * firmware changes, not host changes.
+ *
+ * Reference: host/scripts/app/buffers.lua and host/scripts/app/dump.lua,
+ * firmware/source/buffer.c (INL-retro-progdump).
  */
 
 import type { INLDevice } from "./inl-device";
