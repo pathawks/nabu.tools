@@ -54,8 +54,10 @@ export interface DumpRegionOptions {
  * state and frees the buffers, re-synchronising host and firmware. It runs at
  * the start of every region (so a prior abnormal exit can't poison a fresh
  * dump) and in `dumpRegion`'s `finally` (so an abnormal exit cleans up after
- * itself). It is best-effort: if the reset transfer itself throws (e.g. the
- * device was unplugged), we swallow it so the original error still propagates.
+ * itself). Transfer errors propagate from here: the leading call rightly
+ * fails the dump when the device won't respond, while the `finally` call
+ * site wraps this in its own try/catch so a failed *cleanup* reset (e.g.
+ * the device was unplugged mid-dump) can't mask the original error.
  */
 async function resetDumpEngine(device: INLDevice): Promise<void> {
   await device.operation(OPER.SET_OPERATION, STATUS.RESET);
