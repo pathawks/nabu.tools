@@ -112,9 +112,21 @@ type LogFn = (msg: string, level?: "info" | "warn" | "error") => void;
 interface UseConnectionOptions {
   log: LogFn;
   onReady: (driver: DeviceDriver, info: DeviceInfo) => void;
+  /**
+   * Called after the device is torn down, on BOTH the explicit Disconnect
+   * button and a device-initiated disconnect (physical unplug). Lets the
+   * caller clear per-session state (selected system, config, dump result)
+   * that isn't owned by this hook, so a replug/auto-reconnect starts fresh
+   * instead of resurrecting the previous cartridge's report.
+   */
+  onDisconnected?: () => void;
 }
 
-export function useConnection({ log, onReady }: UseConnectionOptions) {
+export function useConnection({
+  log,
+  onReady,
+  onDisconnected,
+}: UseConnectionOptions) {
   const [connected, setConnected] = useState(false);
   const [driver, setDriver] = useState<DeviceDriver | null>(null);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
@@ -126,11 +138,19 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
   const driverRef = useRef<DeviceDriver | null>(null);
   const lastDeviceIdRef = useRef<string | null>(null);
   const handleConnectRef = useRef<((id: string) => Promise<void>) | null>(null);
+  // Latest onDisconnected via ref so the transport's onDisconnect listener
+  // (registered once at connect time) always calls the current callback
+  // without re-registering whenever the callback identity changes.
+  const onDisconnectedRef = useRef(onDisconnected);
 
   // Keep ref in sync for cleanup handler
   useEffect(() => {
     driverRef.current = driver;
   }, [driver]);
+
+  useEffect(() => {
+    onDisconnectedRef.current = onDisconnected;
+  }, [onDisconnected]);
 
   // Close transport on page unload/refresh
   useEffect(() => {
@@ -201,6 +221,10 @@ export function useConnection({ log, onReady }: UseConnectionOptions) {
     setConnected(false);
     setConnectError(null);
     log("Disconnected");
+    // Clear caller-owned per-session state (dump result, selected system,
+    // config) on BOTH paths — button and physical unplug — so an
+    // auto-reconnect on replug doesn't resurrect the previous dump's report.
+    onDisconnectedRef.current?.();
     // Re-probe so the connect screen shows current availability
     probeAvailableDevices().then(setAvailableDevices);
   }, [log]);

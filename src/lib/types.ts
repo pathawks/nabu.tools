@@ -152,6 +152,14 @@ export interface DumpProgress {
 
 export interface CartridgeInfo<M = Record<string, unknown>> {
   title?: string;
+  /**
+   * One-line description of what detection found, for the event log when
+   * the cart carries no self-reported title (e.g. NES: "NES cartridge
+   * (mirroring: vertical)"). Unlike `title` it is never used for filenames
+   * or config prefill, so it can hold transient detail like power-on
+   * mirroring state.
+   */
+  summary?: string;
   mapper?: MapperInfo;
   romSize?: number;
   saveSize?: number;

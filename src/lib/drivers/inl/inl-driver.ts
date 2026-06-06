@@ -93,11 +93,13 @@ export class INLDriver implements DeviceDriver {
       );
     }
 
-    this.log(`Detected: NES cartridge (mirroring: ${mirroring})`);
-
     return {
       systemId: "nes",
       cartInfo: {
+        // NES carts carry no self-reported title; describe what detection
+        // found and let the app emit the single "Detected: ..." log line
+        // through the same path as title-bearing systems.
+        summary: `NES cartridge (mirroring: ${mirroring})`,
         meta: { mirroring },
       },
     };

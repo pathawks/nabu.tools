@@ -183,10 +183,12 @@ function App() {
         const system = ALL_SYSTEMS.find((s) => s.systemId === result.systemId);
         if (!system) return;
 
+        // Header-bearing systems report a title; drivers whose carts carry
+        // none (e.g. NES) supply a `summary` of what detection found instead.
         log(
           result.cartInfo.mapper
-            ? `Detected: ${result.cartInfo.title ?? "Unknown"} (${result.cartInfo.mapper.name ?? "unknown mapper"})`
-            : `Detected: ${result.cartInfo.title ?? "Unknown"}`,
+            ? `Detected: ${result.cartInfo.title ?? result.cartInfo.summary ?? "Unknown"} (${result.cartInfo.mapper.name ?? "unknown mapper"})`
+            : `Detected: ${result.cartInfo.title ?? result.cartInfo.summary ?? "Unknown"}`,
         );
         const cap = drv.capabilities.find((c) => c.systemId === result.systemId);
         const prefilled = prefillFromCartInfo(
@@ -220,16 +222,31 @@ function App() {
     [autoDetectSystem],
   );
 
-  const connection = useConnection({ log, onReady: onDeviceReady });
-
-  const handleDisconnect = useCallback(async () => {
-    await connection.handleDisconnect();
+  /**
+   * Clear per-session wizard + dump state. Runs on every disconnect — the
+   * explicit Disconnect button AND a device-initiated disconnect (physical
+   * unplug) — via useConnection's onDisconnected hook, so a replug/auto-
+   * reconnect starts fresh instead of showing the previous dump's report.
+   */
+  const clearSessionState = useCallback(() => {
     setSelectedSystem(null);
     setConfigValues({});
     setAutoDetected(null);
     setUnsupportedDetection(null);
     dumpJob.reset();
-  }, [connection, dumpJob]);
+  }, [dumpJob]);
+
+  const connection = useConnection({
+    log,
+    onReady: onDeviceReady,
+    onDisconnected: clearSessionState,
+  });
+
+  // Disconnect button: tear down the connection; clearSessionState runs from
+  // useConnection's onDisconnected for both this path and physical unplug.
+  const handleDisconnect = useCallback(async () => {
+    await connection.handleDisconnect();
+  }, [connection]);
 
   // Filter systems to what the connected device supports
   const availableSystems = useMemo(() => {
@@ -286,10 +303,12 @@ function App() {
           const info = await connection.driver.detectCartridge(system.systemId);
           if (info) {
             detected = info;
+            // See autoDetectSystem: title for header-bearing systems,
+            // driver-supplied summary for the rest.
             log(
               info.mapper
-                ? `Detected: ${info.title ?? "Unknown"} (${info.mapper.name ?? "unknown mapper"})`
-                : `Detected: ${info.title ?? "Unknown"}`,
+                ? `Detected: ${info.title ?? info.summary ?? "Unknown"} (${info.mapper.name ?? "unknown mapper"})`
+                : `Detected: ${info.title ?? info.summary ?? "Unknown"}`,
             );
             prefilled = prefillFromCartInfo(system, info, hasSeparateSaveRead(cap));
           } else {
