@@ -266,6 +266,8 @@ export interface ResolvedConfigField {
   autoDetected?: boolean;
   locked?: boolean;
   helpText?: string;
+  /** Prominent amber warning alert (e.g. a hardware/handling caveat). */
+  warning?: string;
   lockedReason?: string;
   group?: string;
   order?: number;

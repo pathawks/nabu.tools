@@ -11,6 +11,7 @@ import { rambo1 } from "./rambo1";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
+import { quattro } from "./quattro";
 
 /**
  * A deterministic, well-mixed cart image. The multiplicative hash makes
@@ -38,6 +39,18 @@ function expectSameBytes(actual: Uint8Array, expected: Uint8Array) {
 function imageWithGate(bytes: number): Uint8Array {
   const a = makeImage(bytes);
   a[3] = 0xff;
+  return a;
+}
+
+/**
+ * Like `imageWithGate`, but seeds a 0xFF write gate at offset 3 of *every*
+ * `bankBytes`-sized bank. The two-register Quattro (mapper 232) gates its
+ * page selects through whichever bank sits in the $C000 window — a different
+ * bank per outer block — not just bank 0, so each needs a gate byte.
+ */
+function imageWithGatePerBank(bytes: number, bankBytes: number): Uint8Array {
+  const a = makeImage(bytes);
+  for (let off = 0; off < bytes; off += bankBytes) a[off + 3] = 0xff;
   return a;
 }
 
@@ -773,5 +786,80 @@ describe("RAMBO-1 (mapper 64)", () => {
       readCpu: async () => new Uint8Array(0),
     };
     await expect(rambo1.dumpChrRom(noPpu, 64)).rejects.toThrow(/PPU-bus/);
+  });
+});
+
+describe("Quattro (mapper 232)", () => {
+  // Two-register BF9096 multicart, modeled WITH a bus conflict on both
+  // registers (the gate path must work either way). $8000-$BFFF latches
+  // `value & rom` → block in bits 4-3; $C000-$FFFF latches `value & rom` →
+  // page in bits 1-0. The $8000 window maps block*4+page; the $C000 window
+  // is fixed to block*4+3. The rom gate byte for a write comes from whichever
+  // 16 KiB window the address lands in. `drops` simulates a flaky latch by
+  // ignoring the first N non-zero PAGE selects, leaving page 0 — which on
+  // block 0 reads back as bank 0, the recoverable dropout.
+  class QuattroBus implements NesBus {
+    private block = 0;
+    private page = 0;
+    private readonly prg: Uint8Array;
+    private drops: number;
+    constructor(prg: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.drops = drops;
+    }
+    async setup() {}
+    private bankIn(window: 0 | 1): number {
+      // 0 = $8000-$BFFF (switchable), 1 = $C000-$FFFF (fixed last page)
+      return window === 0 ? this.block * 4 + this.page : this.block * 4 + 3;
+    }
+    async writeCpu(addr: number, value: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      const window = addr < 0xc000 ? 0 : 1;
+      const romByte = this.prg[this.bankIn(window) * 0x4000 + (addr & 0x3fff)];
+      const latched = value & (romByte ?? 0xff);
+      if (window === 0) {
+        // submapper 1: D4 = block bit 0, D3 = block bit 1 (swapped order)
+        this.block = (((latched >> 3) & 1) << 1) | ((latched >> 4) & 1);
+      } else {
+        const newPage = latched & 0x03;
+        if (newPage !== 0 && this.drops > 0) {
+          this.drops--; // dropped page latch: register keeps its old value
+          return;
+        }
+        this.page = newPage;
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      expect(length).toBe(0x4000); // 16 KiB window
+      const window = addr === 0x8000 ? 0 : addr === 0xc000 ? 1 : -1;
+      expect(window).not.toBe(-1);
+      const off = this.bankIn(window as 0 | 1) * 0x4000;
+      return this.prg.slice(off, off + length);
+    }
+  }
+
+  it("dumps all sixteen 16 KiB banks across four blocks (256 KiB)", async () => {
+    const prg = imageWithGatePerBank(256 * 1024, 0x4000);
+    const out = await quattro.dumpPrgRom(new QuattroBus(prg), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("recovers from a dropped page select via the bank-0 retry", async () => {
+    const prg = imageWithGatePerBank(256 * 1024, 0x4000);
+    // Drop the first non-zero page select (block 0, page 1): it reads back as
+    // bank 0, and readBankWithRetry re-issues the select and re-reads.
+    const out = await quattro.dumpPrgRom(new QuattroBus(prg, 1), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("returns an empty CHR dump for the CHR-RAM cart (size 0)", async () => {
+    const out = await quattro.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
+  });
+
+  it("throws if asked to dump CHR-ROM (Quattro is CHR-RAM)", async () => {
+    await expect(quattro.dumpChrRom({} as NesBus, 8)).rejects.toThrow(
+      /CHR-RAM/,
+    );
   });
 });

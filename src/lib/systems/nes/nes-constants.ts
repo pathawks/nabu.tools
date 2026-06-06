@@ -18,6 +18,11 @@ export interface NESMapperDef {
    * their RAM size here.
    */
   chrRamKB?: number;
+  /**
+   * Optional per-mapper hardware warning, surfaced as a prominent amber
+   * alert in the config UI (e.g. a cart-handling caveat).
+   */
+  warning?: string;
 }
 
 /**
@@ -122,6 +127,18 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     mirroring: "selectable",
     commonlyHasBattery: false,
     maxPrgRamKB: 0,
+  },
+  {
+    id: 232,
+    name: "Quattro",
+    prgSizesKB: [256],
+    chrSizesKB: [0],
+    mirroring: "selectable",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+    chrRamKB: 8,
+    warning:
+      "Set the A/B switch to position A (lockout-defeat OFF) before dumping — leaving it in B can damage the cart or reader.",
   },
 ];
 

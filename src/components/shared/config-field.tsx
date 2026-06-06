@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import type { ResolvedConfigField } from "@/lib/types";
 import {
   Select,
@@ -129,6 +130,13 @@ export function ConfigField({ field, onChange }: ConfigFieldProps) {
 
       {field.lockedReason && (
         <span className="text-[11px] text-primary/70">{field.lockedReason}</span>
+      )}
+
+      {field.warning && (
+        <span className="flex items-start gap-1 text-[11px] text-chart-3">
+          <AlertTriangle className="mt-px size-3 shrink-0" />
+          <span>{field.warning}</span>
+        </span>
       )}
     </div>
   );

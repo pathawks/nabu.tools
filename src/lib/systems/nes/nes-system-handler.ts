@@ -71,6 +71,7 @@ export class NESSystemHandler implements SystemHandler {
       helpText: autoDetected?.mapper
         ? `Auto-detected: ${autoDetected.mapper.name}`
         : "Look up your game's mapper and ROM sizes on nescartdb.com",
+      warning: mapperDef?.warning,
     });
 
     // PRG ROM Size
@@ -90,9 +91,6 @@ export class NESSystemHandler implements SystemHandler {
       type: "select",
       value: prgSizeKB,
       locked: prgLocked,
-      lockedReason: prgLocked
-        ? `${mapperDef?.name} only supports ${validPrgSizes[0]}KB PRG ROM`
-        : undefined,
       autoDetected: autoDetected?.romSize != null,
       options: validPrgSizes.map((s) => ({
         value: s,
@@ -119,23 +117,17 @@ export class NESSystemHandler implements SystemHandler {
       type: chrRamOnly ? "readonly" : "select",
       value: chrSizeKB,
       locked: chrRamOnly,
-      lockedReason: chrRamOnly
-        ? `${mapperDef?.name} uses CHR RAM — no CHR ROM to dump`
-        : undefined,
       autoDetected: false,
       options: chrRamOnly
-        ? [{ value: 0, label: "None (CHR RAM)" }]
+        ? [{ value: 0, label: "CHR-RAM" }]
         : validChrSizes.map((s) => ({
             value: s,
-            label: s === 0 ? "None (CHR RAM)" : `${s} KB`,
+            label: s === 0 ? "CHR-RAM" : `${s} KB`,
             hint: s === 0 ? "Cart uses CHR RAM" : `${s / 8} x 8KB banks`,
           })),
       dependsOn: ["mapper"],
       group: "cartridge",
       order: 2,
-      helpText: chrRamOnly
-        ? "This mapper uses CHR RAM instead of mask ROM. No CHR data to dump."
-        : undefined,
     });
 
     // Battery SRAM — a single opt-in, off by default. Checking it reads

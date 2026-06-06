@@ -24,6 +24,7 @@ import { rambo1 } from "./rambo1";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
+import { quattro } from "./quattro";
 import type { NesMapper } from "./types";
 
 export const NES_MAPPERS: Record<number, NesMapper> = {
@@ -37,6 +38,7 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   11: colorDreams,
   64: rambo1,
   66: gxrom,
+  232: quattro,
 };
 
 export function getNesMapper(id: number): NesMapper | undefined {
