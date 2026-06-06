@@ -7,6 +7,7 @@ import { uxrom } from "./uxrom";
 import { cxrom } from "./cxrom";
 import { mmc2 } from "./mmc2";
 import { mmc3 } from "./mmc3";
+import { rambo1 } from "./rambo1";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
@@ -700,5 +701,77 @@ describe("readChrBankLatched seam (fused-CHR devices)", () => {
     const chr = makeImage(32 * 1024); // 4 banks of 8 KiB
     const out = await gxrom.dumpChrRom(new FusedChrBus(prg, chr), 32);
     expectSameBytes(out, chr);
+  });
+});
+
+describe("RAMBO-1 (mapper 64)", () => {
+  // RAMBO-1 dumps through the shared MMC3 core. This models the
+  // MMC3-compatible registers it uses for dumping — R6 (8 KiB PRG at $8000)
+  // and R0/R1 (CHR, 1 KiB units → 2 KiB windows) — and ASSERTS $A001 is
+  // never written: unlike MMC3, RAMBO-1 has no PRG-RAM control register, so
+  // a stray write there would be a bug (the reason RAMBO-1 has its own init).
+  class Rambo1Bus implements NesBus {
+    private select = 0;
+    private r = new Array<number>(16).fill(0);
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    constructor(prg: Uint8Array, chr: Uint8Array) {
+      this.prg = prg;
+      this.chr = chr;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr === 0xa001) {
+        throw new Error(
+          "RAMBO-1 has no $A001 PRG-RAM register — the dumper must not write it",
+        );
+      }
+      if (addr === 0x8000) this.select = value & 0x0f; // 4-bit command
+      else if (addr === 0x8001) this.r[this.select] = value;
+      // $A000 (mirroring) is a no-op for content reads.
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      expect(length).toBe(8 * 1024);
+      const off = this.r[6] * 0x2000;
+      return this.prg.slice(off, off + length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      expect(length).toBe(4 * 1024);
+      const b0 = (this.r[0] >> 1) * 0x800;
+      const b1 = (this.r[1] >> 1) * 0x800;
+      const out = new Uint8Array(length);
+      out.set(this.chr.slice(b0, b0 + 0x800), 0);
+      out.set(this.chr.slice(b1, b1 + 0x800), 0x800);
+      return out;
+    }
+  }
+
+  it("walks all PRG banks via R6, never touching $A001 (64 KiB)", async () => {
+    const prg = makeImage(64 * 1024); // 8 banks of 8 KiB
+    const out = await rambo1.dumpPrgRom(
+      new Rambo1Bus(prg, new Uint8Array(0)),
+      64,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it("walks CHR via R0/R1 (64 KiB)", async () => {
+    const chr = makeImage(64 * 1024);
+    const out = await rambo1.dumpChrRom(
+      new Rambo1Bus(new Uint8Array(0), chr),
+      64,
+    );
+    expectSameBytes(out, chr);
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const noPpu: NesBus = {
+      setup: async () => {},
+      writeCpu: async () => {},
+      readCpu: async () => new Uint8Array(0),
+    };
+    await expect(rambo1.dumpChrRom(noPpu, 64)).rejects.toThrow(/PPU-bus/);
   });
 });

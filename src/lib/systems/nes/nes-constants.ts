@@ -106,6 +106,15 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     maxPrgRamKB: 0,
   },
   {
+    id: 64,
+    name: "RAMBO-1",
+    prgSizesKB: [64, 128, 256],
+    chrSizesKB: [16, 32, 64, 128, 256],
+    mirroring: "mapper_controlled",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+  },
+  {
     id: 66,
     name: "GxROM",
     prgSizesKB: [32, 64, 128],

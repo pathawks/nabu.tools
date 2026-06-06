@@ -20,6 +20,7 @@ import { uxrom } from "./uxrom";
 import { cxrom } from "./cxrom";
 import { mmc2 } from "./mmc2";
 import { mmc3 } from "./mmc3";
+import { rambo1 } from "./rambo1";
 import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
@@ -34,6 +35,7 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   7: axrom,
   9: mmc2,
   11: colorDreams,
+  64: rambo1,
   66: gxrom,
 };
 
