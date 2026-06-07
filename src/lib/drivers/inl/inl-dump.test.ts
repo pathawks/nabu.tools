@@ -154,9 +154,9 @@ describe("dumpRegion wire protocol", () => {
       // allocate: operand = (id<<8)|basebank, misc = num_banks (128/32 = 4)
       { m: "buffer", op: BUFFER.ALLOCATE_BUFFER0, operand: 0x0000, misc: 4 },
       { m: "buffer", op: BUFFER.ALLOCATE_BUFFER1, operand: 0x8004, misc: 4 },
-      // 0x90/0x91 SET_RELOAD_PAGENUM: operand = firstpage, misc = reload
-      { m: "buffer", op: 0x90, operand: 0, misc: 1 },
-      { m: "buffer", op: 0x91, operand: 0, misc: 1 },
+      // SET_RELOAD_PAGENUM: operand = first page_num, misc = reload
+      { m: "buffer", op: BUFFER.SET_RELOAD_PAGENUM0, operand: 0, misc: 1 },
+      { m: "buffer", op: BUFFER.SET_RELOAD_PAGENUM1, operand: 0, misc: 1 },
       // per-buffer mem/part then map/mapvar, selected by misc = buffer index
       { m: "buffer", op: BUFFER.SET_MEM_N_PART, operand: memPart, misc: 0 },
       { m: "buffer", op: BUFFER.SET_MEM_N_PART, operand: memPart, misc: 1 },

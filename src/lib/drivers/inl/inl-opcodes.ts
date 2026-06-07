@@ -84,6 +84,12 @@ export const BUFFER = {
   // Per-buffer allocation (buffer index encoded in opcode)
   ALLOCATE_BUFFER0: 0x80,
   ALLOCATE_BUFFER1: 0x81,
+
+  // Per-buffer dump-position init (buffer index encoded in opcode):
+  // operand = first page_num, misc = reload (added to the buffer's page_num
+  // after each of its dumps, advancing it through the region).
+  SET_RELOAD_PAGENUM0: 0x90,
+  SET_RELOAD_PAGENUM1: 0x91,
 } as const;
 
 // ─── Operation Dictionary ───────────────────────────────────────────────────

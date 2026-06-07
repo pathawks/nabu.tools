@@ -133,9 +133,8 @@ async function allocateBuffers(device: INLDevice): Promise<void> {
   );
 
   // Set first page and reload for each buffer
-  // SET_RELOAD_PAGENUM0 = 0x90, SET_RELOAD_PAGENUM1 = 0x91
-  await device.buffer(0x90, 0x0000, reload); // buff0: firstpage=0, reload=1
-  await device.buffer(0x91, 0x0000, reload); // buff1: firstpage=0, reload=1
+  await device.buffer(BUFFER.SET_RELOAD_PAGENUM0, 0x0000, reload); // buff0: firstpage=0
+  await device.buffer(BUFFER.SET_RELOAD_PAGENUM1, 0x0000, reload); // buff1: firstpage=0
 }
 
 /**
