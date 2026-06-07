@@ -2,6 +2,7 @@ import type {
   SystemHandler,
   ConfigValues,
   CartridgeInfo,
+  DeviceCapability,
   ResolvedConfigField,
   ValidationResult,
   ValidationError,
@@ -43,6 +44,7 @@ export class NESSystemHandler implements SystemHandler {
   getConfigFields(
     currentValues: ConfigValues,
     autoDetected?: CartridgeInfo,
+    capability?: DeviceCapability,
   ): ResolvedConfigField[] {
     const fields: ResolvedConfigField[] = [];
 
@@ -57,15 +59,25 @@ export class NESSystemHandler implements SystemHandler {
       type: "select",
       value: mapperValue,
       autoDetected: autoDetected?.mapper != null,
-      options: NES_MAPPER_DB.map((m) => ({
-        value: m.id,
-        label: `${m.id}: ${m.name}`,
-        hint:
-          `PRG: ${m.prgSizesKB.join("/")}KB` +
-          (m.chrSizesKB.some((c) => c > 0)
-            ? ` · CHR: ${m.chrSizesKB.filter((c) => c > 0).join("/")}KB`
-            : " · CHR RAM"),
-      })),
+      options: NES_MAPPER_DB.map((m) => {
+        // Greyed out when the connected device declares it can't drive
+        // this mapper (the driver also pre-flight-rejects it at dump time).
+        const disabled =
+          capability?.unsupportedMappers?.includes(m.id) ?? false;
+        return {
+          value: m.id,
+          label: `${m.id}: ${m.name}`,
+          // A disabled mapper can't be dumped here, so its sizes are
+          // irrelevant noise — show only why it's unavailable.
+          hint: disabled
+            ? "not dumpable with this device"
+            : `PRG: ${m.prgSizesKB.join("/")}KB` +
+              (m.chrSizesKB.some((c) => c > 0)
+                ? ` · CHR: ${m.chrSizesKB.filter((c) => c > 0).join("/")}KB`
+                : " · CHR RAM"),
+          disabled,
+        };
+      }),
       group: "cartridge",
       order: 0,
       helpText: autoDetected?.mapper

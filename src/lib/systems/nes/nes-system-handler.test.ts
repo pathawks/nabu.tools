@@ -29,3 +29,32 @@ describe("NES config sizing", () => {
     expect(handler.estimateDumpSize({ mapper: 0 })).toBe(16 + (32 + 8) * 1024);
   });
 });
+
+describe("NES mapper-option greying", () => {
+  const handler = new NESSystemHandler();
+
+  it("greys out mappers the connected device declares unsupported", () => {
+    const fields = handler.getConfigFields({ mapper: 0 }, undefined, {
+      systemId: "nes",
+      operations: ["dump_rom"],
+      autoDetect: true,
+      unsupportedMappers: [4],
+    });
+    const options = fields.find((f) => f.key === "mapper")?.options ?? [];
+    const disabledOpt = options.find((o) => o.value === 4);
+    expect(disabledOpt?.disabled).toBe(true);
+    // A disabled mapper's hint is only the reason — no PRG/CHR sizes.
+    expect(disabledOpt?.hint).toBe("not dumpable with this device");
+    // Enabled mappers still show their sizes.
+    expect(options.find((o) => o.value === 0)?.hint).toMatch(/PRG:/);
+    // Everything else stays selectable...
+    expect(options.filter((o) => o.disabled)).toHaveLength(1);
+    // ...and with no capability context nothing is greyed at all.
+    const bare = handler.getConfigFields({ mapper: 0 });
+    expect(
+      (bare.find((f) => f.key === "mapper")?.options ?? []).every(
+        (o) => !o.disabled,
+      ),
+    ).toBe(true);
+  });
+});

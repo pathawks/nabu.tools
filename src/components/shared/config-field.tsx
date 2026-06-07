@@ -43,7 +43,9 @@ export function ConfigField({ field, onChange }: ConfigFieldProps) {
   if (field.type === "hidden") return null;
 
   return (
-    <div className="flex flex-col gap-1">
+    // min-w-0: as a grid item this would otherwise refuse to shrink below
+    // its content (a long select label), overflowing into the next column.
+    <div className="flex min-w-0 flex-col gap-1">
       <label className="text-[10px] uppercase tracking-widest text-muted-foreground">
         {field.label}
         {field.autoDetected && (
@@ -71,18 +73,24 @@ export function ConfigField({ field, onChange }: ConfigFieldProps) {
           }}
           disabled={field.locked}
         >
-          <SelectTrigger className="h-9 bg-background font-mono text-sm">
+          <SelectTrigger className="h-9 w-full bg-background font-mono text-sm">
             <SelectValue>
-              {
-                field.options.find(
-                  (o) => String(o.value) === String(field.value),
-                )?.label
-              }
+              <span className="truncate">
+                {
+                  field.options.find(
+                    (o) => String(o.value) === String(field.value),
+                  )?.label
+                }
+              </span>
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {field.options.map((opt) => (
-              <SelectItem key={String(opt.value)} value={String(opt.value)}>
+              <SelectItem
+                key={String(opt.value)}
+                value={String(opt.value)}
+                disabled={opt.disabled}
+              >
                 <span className="flex flex-col">
                   <span>{opt.label}</span>
                   {opt.hint && (

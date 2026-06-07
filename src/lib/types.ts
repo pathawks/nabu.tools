@@ -72,6 +72,13 @@ export interface DeviceCapability {
   )[];
   autoDetect: boolean;
   notes?: string;
+  /**
+   * Mapper IDs in the system's shared catalog this device cannot drive
+   * (only meaningful for mapper-based systems, i.e. NES). The driver
+   * still pre-flight-rejects these in `readROM`; declaring them here
+   * additionally greys the options out in the config UI.
+   */
+  unsupportedMappers?: number[];
 }
 
 export interface DeviceDriverEvents {
@@ -181,6 +188,12 @@ export interface SystemHandler {
   getConfigFields(
     currentValues: ConfigValues,
     autoDetected?: CartridgeInfo,
+    /**
+     * The connected device's capability for this system, when known —
+     * lets the handler grey out options the device can't drive (e.g.
+     * `unsupportedMappers`).
+     */
+    capability?: DeviceCapability,
   ): ResolvedConfigField[];
   estimateDumpSize?(values: ConfigValues): number;
   validate(values: ConfigValues): ValidationResult;
@@ -286,6 +299,8 @@ export interface ConfigOption {
   value: string | number;
   label: string;
   hint?: string;
+  /** Greyed out and unselectable (e.g. the connected device can't dump it). */
+  disabled?: boolean;
 }
 
 // ─── Validation ─────────────────────────────────────────────────────────────

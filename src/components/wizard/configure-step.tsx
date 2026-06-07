@@ -14,6 +14,7 @@ import type {
   SystemHandler,
   ConfigValues,
   CartridgeInfo,
+  DeviceCapability,
 } from "@/lib/types";
 
 interface ConfigureStepProps {
@@ -23,6 +24,9 @@ interface ConfigureStepProps {
   configValues: ConfigValues;
   onConfigChange: (key: string, value: unknown) => void;
   autoDetected: CartridgeInfo | null;
+  /** The connected device's capability for the selected system, when known —
+   * lets handlers grey out options the device can't drive. */
+  capability?: DeviceCapability;
   /** A cartridge was detected that the adapter can't read; render an explanation instead of the dump UI. */
   unsupportedDetection?: { title: string; reason: string } | null;
   /** Whether to hint that the user should load a No-Intro DAT. */
@@ -43,6 +47,7 @@ export function ConfigureStep({
   configValues,
   onConfigChange,
   autoDetected,
+  capability,
   unsupportedDetection,
   suggestLoadDat,
   detecting,
@@ -56,8 +61,9 @@ export function ConfigureStep({
       selectedSystem?.getConfigFields(
         configValues,
         autoDetected ?? undefined,
+        capability,
       ) ?? [],
-    [selectedSystem, configValues, autoDetected],
+    [selectedSystem, configValues, autoDetected, capability],
   );
 
   const validation = useMemo(

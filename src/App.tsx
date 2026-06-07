@@ -510,6 +510,9 @@ function App() {
                     configValues={configValues}
                     onConfigChange={handleConfigChange}
                     autoDetected={autoDetected}
+                    capability={connection.driver?.capabilities.find(
+                      (c) => c.systemId === selectedSystem?.systemId,
+                    )}
                     unsupportedDetection={unsupportedDetection}
                     suggestLoadDat={
                       !!selectedSystem &&
