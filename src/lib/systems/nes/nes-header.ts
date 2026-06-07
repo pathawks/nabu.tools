@@ -84,11 +84,21 @@ export function buildNes2Header(p: Nes2HeaderInputs): Uint8Array {
   h[2] = 0x53; // S
   h[3] = 0x1a;
 
-  // PRG/CHR size — currently only the low 8 bits; byte 9 high nibble
-  // would carry MSB nibbles for sizes >= 4 MiB which we don't yet
-  // support.
-  h[4] = (p.prgBytes / 16384) & 0xff;
-  h[5] = (p.chrBytes / 8192) & 0xff;
+  // PRG/CHR size: low 8 bits in bytes 4/5, MSB nibbles in byte 9. The
+  // plain (non-exponent) NES 2.0 size form tops out at 0xEFF units —
+  // ~60 MiB PRG / ~30 MiB CHR — which comfortably covers the largest
+  // boards we offer (32 MiB mapper-268 multicarts). An MSB nibble of
+  // 0xF would flip the field into exponent form, so guard loudly
+  // rather than emit a header that silently means something else.
+  const prgUnits = p.prgBytes / 16384;
+  const chrUnits = p.chrBytes / 8192;
+  if (prgUnits > 0xeff || chrUnits > 0xeff) {
+    throw new Error(
+      `ROM too large for NES 2.0 plain size form: ${prgUnits}x16K PRG / ${chrUnits}x8K CHR`,
+    );
+  }
+  h[4] = prgUnits & 0xff;
+  h[5] = chrUnits & 0xff;
 
   // Flags 6: mapper bits 0-3, mirroring, battery, four-screen
   let flags6 = (p.mapper & 0x0f) << 4;
@@ -104,8 +114,8 @@ export function buildNes2Header(p: Nes2HeaderInputs): Uint8Array {
   const submapper = p.submapper ?? 0;
   h[8] = ((submapper & 0x0f) << 4) | ((p.mapper >> 8) & 0x0f);
 
-  // Byte 9: PRG/CHR MSB nibbles — 0 for everything we support today.
-  h[9] = 0;
+  // Byte 9: CHR MSB nibble (high), PRG MSB nibble (low).
+  h[9] = (((chrUnits >> 8) & 0x0f) << 4) | ((prgUnits >> 8) & 0x0f);
 
   // Byte 10: PRG-RAM (low), PRG-NVRAM (high). Battery → NVRAM nibble.
   const prgRamShift = ramShift((p.prgRamKB ?? 0) * 1024);

@@ -95,4 +95,48 @@ describe("buildNes2Header", () => {
       }),
     ).toThrow();
   });
+
+  it("encodes a mapper-268 multicart: mapper MSBs, volatile work RAM, big CHR-RAM", () => {
+    const h = buildNes2Header({
+      prgBytes: 2048 * 1024,
+      chrBytes: 0,
+      mapper: 268,
+      mirroring: "mapper_controlled",
+      battery: false,
+      chrRamKB: 256,
+      prgRamKB: 8, // unbatteried trampoline RAM — byte 10 LOW nibble
+    });
+    expectNes2Magic(h);
+    expect(h[4]).toBe(128); // 2 MiB = 128 x 16 KiB
+    expect(h[6] >> 4).toBe(268 & 0x0f);
+    expect(h[7] & 0xf0).toBe(268 & 0xf0);
+    expect(h[8] & 0x0f).toBe(268 >> 8);
+    expect(h[10]).toBe(0x07); // volatile 8 KiB, no NVRAM
+    expect(h[11]).toBe(0x0c); // 256 KiB CHR-RAM = 64 << 12
+  });
+
+  it("spills PRG/CHR sizes >= 4 MiB into the byte-9 MSB nibbles", () => {
+    const h = buildNes2Header({
+      prgBytes: 32768 * 1024, // 32 MiB = 0x800 x 16 KiB units
+      chrBytes: 4096 * 1024, // 4 MiB = 0x200 x 8 KiB units
+      mapper: 268,
+      mirroring: "mapper_controlled",
+      battery: false,
+    });
+    expect(h[4]).toBe(0x00);
+    expect(h[5]).toBe(0x00);
+    expect(h[9]).toBe(0x28); // CHR MSB nibble 2 (high), PRG MSB nibble 8 (low)
+  });
+
+  it("rejects sizes past the plain-form ceiling instead of wrapping", () => {
+    expect(() =>
+      buildNes2Header({
+        prgBytes: 0xf00 * 16384, // first unit count that needs exponent form
+        chrBytes: 0,
+        mapper: 268,
+        mirroring: "mapper_controlled",
+        battery: false,
+      }),
+    ).toThrow(/too large/);
+  });
 });
