@@ -1,3 +1,5 @@
+import type { ConfigOption } from "@/lib/types";
+
 export interface NESMapperDef {
   id: number;
   name: string;
@@ -209,6 +211,53 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
       "The dump recipe for this board is vendor-derived and not yet hardware-validated — verify the result against a known-good reference.",
   },
 ];
+
+// ─── NES 2.0 header-field options ───────────────────────────────────────────
+// Curated choices for the post-dump header editor (unverified dumps only).
+// Values match the encodings the NES header helpers expect: timing/mirroring
+// use the NesTvSystem/NesMirroring string literals; the rest are raw field
+// numbers.
+
+/** CPU/PPU timing (header byte 12) — the closest thing NES 2.0 has to region. */
+export const NES_TIMING_OPTIONS: ConfigOption[] = [
+  { value: "ntsc", label: "NTSC", hint: "North America / Japan (RP2C02)" },
+  { value: "pal", label: "PAL", hint: "Europe / Australia (RP2C07)" },
+  { value: "multi", label: "Multi-region" },
+  { value: "dendy", label: "Dendy", hint: "Famiclone timing" },
+];
+
+/** Console type (header byte 7 bits 0-1). */
+export const NES_CONSOLE_TYPE_OPTIONS: ConfigOption[] = [
+  { value: 0, label: "NES / Famicom" },
+  { value: 1, label: "Vs. System" },
+  { value: 2, label: "PlayChoice-10" },
+];
+
+/** Nametable mirroring (header byte 6). */
+export const NES_MIRRORING_OPTIONS: ConfigOption[] = [
+  { value: "horizontal", label: "Horizontal" },
+  { value: "vertical", label: "Vertical" },
+  { value: "four_screen", label: "Four-screen" },
+];
+
+/**
+ * Default expansion device (header byte 15). The NES 2.0 spec defines ~60;
+ * this is a curated shortlist of the common first-party peripherals. Values
+ * are the spec's device IDs.
+ */
+export const NES_EXPANSION_DEVICE_OPTIONS: ConfigOption[] = [
+  { value: 0, label: "Unspecified" },
+  { value: 1, label: "Standard Controller" },
+  { value: 2, label: "Four Score", hint: "4-player adapter" },
+  { value: 8, label: "Zapper", hint: "Light gun" },
+  { value: 0x0b, label: "Power Pad" },
+];
+
+/** Submapper (header byte 8, high nibble): 0-15. */
+export const NES_SUBMAPPER_OPTIONS: ConfigOption[] = Array.from(
+  { length: 16 },
+  (_, i) => ({ value: i, label: String(i) }),
+);
 
 export function getMapperDef(id: number): NESMapperDef | undefined {
   return NES_MAPPER_DB.find((m) => m.id === id);

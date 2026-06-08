@@ -11,10 +11,34 @@ import type {
   VerificationHashes,
   VerificationDB,
   VerificationResult,
+  DumpSummary,
+  DumpSummaryCell,
+  ConfigOption,
 } from "@/lib/types";
-import { crc32, sha1Hex, sha256Hex } from "@/lib/core/hashing";
-import { NES_MAPPER_DB, getMapperDef, coerceToNearest } from "./nes-constants";
-import { buildNes2Header, type NesMirroring } from "./nes-header";
+import {
+  crc32,
+  sha1Hex,
+  sha256Hex,
+  hexStr,
+  formatBytes,
+} from "@/lib/core/hashing";
+import {
+  NES_MAPPER_DB,
+  getMapperDef,
+  coerceToNearest,
+  NES_TIMING_OPTIONS,
+  NES_CONSOLE_TYPE_OPTIONS,
+  NES_MIRRORING_OPTIONS,
+  NES_EXPANSION_DEVICE_OPTIONS,
+  NES_SUBMAPPER_OPTIONS,
+} from "./nes-constants";
+import {
+  buildNes2Header,
+  parseEditableHeaderFields,
+  applyEditableHeaderFields,
+  type NesMirroring,
+  type EditableHeaderFields,
+} from "./nes-header";
 import { bytesEqual, isUniformFill } from "./mappers/bank-reliability";
 
 /**
@@ -33,6 +57,105 @@ function resolveSizesKB(
   return {
     prgKB: (values.prgSizeKB as number) ?? prgSizes[prgSizes.length - 1],
     chrKB: (values.chrSizeKB as number) ?? chrSizes[chrSizes.length - 1],
+  };
+}
+
+/**
+ * Read the PRG/CHR ROM region sizes (in bytes) from a 16-byte iNES / NES 2.0
+ * header, plus the offset at which ROM data begins. Returns null for a
+ * non-NES header or the NES 2.0 exponent-multiplier size form — our dumps
+ * never emit the latter, and decoding it here would add untested complexity
+ * for no cartridge in scope.
+ */
+function parseNesRomLayout(
+  data: Uint8Array,
+): { dataStart: number; prgBytes: number; chrBytes: number } | null {
+  // Magic "NES\x1A".
+  if (
+    data.length < 16 ||
+    data[0] !== 0x4e ||
+    data[1] !== 0x45 ||
+    data[2] !== 0x53 ||
+    data[3] !== 0x1a
+  )
+    return null;
+
+  const isNes2 = (data[7] & 0x0c) === 0x08;
+  const prgMsb = isNes2 ? data[9] & 0x0f : 0;
+  const chrMsb = isNes2 ? (data[9] >> 4) & 0x0f : 0;
+  // A 0xF MSB nibble selects the NES 2.0 exponent-multiplier size form — a
+  // valid encoding we don't implement (no cart in scope reaches the sizes
+  // that need it). Bail rather than mis-read the bytes as a linear size.
+  if (prgMsb === 0x0f || chrMsb === 0x0f) return null;
+
+  // A trainer (flags6 bit 2) inserts 512 bytes between header and PRG.
+  const trainer = (data[6] & 0x04) !== 0 ? 512 : 0;
+  return {
+    dataStart: 16 + trainer,
+    prgBytes: ((prgMsb << 8) | data[4]) * 16384,
+    chrBytes: ((chrMsb << 8) | data[5]) * 8192,
+  };
+}
+
+/**
+ * Sanity-check a verified No-Intro canonical header we're about to emit
+ * verbatim against the dump it will wrap. The match was verified by SHA-1
+ * over `header || content`, so the header IS the verified canonical form —
+ * we emit it as-is regardless. But a header that can't describe the bytes
+ * we're attaching (a trainer flag a cart dump can never satisfy, or PRG/CHR
+ * sizes that don't sum to the content) is a malformed DAT entry worth
+ * flagging. Returns human-readable warnings; an empty array means it checks
+ * out. These can only fire on a genuinely corrupt entry — a well-formed
+ * canonical header always describes the content that verified against it.
+ */
+function canonicalHeaderWarnings(
+  header: Uint8Array,
+  contentLength: number,
+): string[] {
+  const warnings: string[] = [];
+
+  if ((header[6] & 0x04) !== 0) {
+    warnings.push(
+      "Verified No-Intro header sets the trainer flag, but a cartridge dump never contains a trainer. " +
+        "Emitting it as verified — the DAT entry's header looks malformed.",
+    );
+  }
+
+  const layout = parseNesRomLayout(header);
+  if (!layout) {
+    warnings.push(
+      "Verified No-Intro header's PRG/CHR size fields couldn't be parsed. " +
+        "Emitting it as verified — the DAT entry's header looks malformed.",
+    );
+  } else if (layout.prgBytes + layout.chrBytes !== contentLength) {
+    warnings.push(
+      `Verified No-Intro header declares ${formatBytes(layout.prgBytes + layout.chrBytes)} of PRG+CHR, ` +
+        `but the dump is ${formatBytes(contentLength)}. Emitting it as verified — the DAT entry's header looks malformed.`,
+    );
+  }
+
+  return warnings;
+}
+
+/**
+ * Human-readable display values for the editable NES 2.0 header fields, read
+ * back from a header's bytes and labelled via the curated option lists. Shared
+ * by buildOutputFile (initial dump) and the post-dump header editor (after an
+ * edit) so the dump report always documents the header that was actually
+ * emitted — not a value baked in from the original config. Unknown raw values
+ * (e.g. an expansion device outside the curated shortlist) fall back to their
+ * number.
+ */
+function nesHeaderMeta(header: Uint8Array): Record<string, string> {
+  const f = parseEditableHeaderFields(header);
+  const labelFor = (options: ConfigOption[], value: string | number) =>
+    options.find((o) => o.value === value)?.label ?? String(value);
+  return {
+    "Region/Timing": labelFor(NES_TIMING_OPTIONS, f.tvSystem),
+    "Console type": labelFor(NES_CONSOLE_TYPE_OPTIONS, f.consoleType),
+    Mirroring: labelFor(NES_MIRRORING_OPTIONS, f.mirroring),
+    Expansion: labelFor(NES_EXPANSION_DEVICE_OPTIONS, f.expansionDevice),
+    Submapper: labelFor(NES_SUBMAPPER_OPTIONS, f.submapper),
   };
 }
 
@@ -256,9 +379,12 @@ export class NESSystemHandler implements SystemHandler {
 
     // Prefer the canonical No-Intro header byte-for-byte when the dump
     // matched a DAT entry: anything the cart can't self-report (TV
-    // system, default expansion device, submapper, etc.) lives in
-    // those bytes, and copying them keeps the output bit-identical to
-    // the DAT entry. Falls back to a computed header when there's no
+    // system, default expansion device, submapper, etc.) lives in those
+    // bytes, and the match is verified by SHA-1 over `header || content`
+    // (see verify()), so emitting it keeps the output bit-identical to the
+    // verified entry. We emit it as-is even if the header looks unusual —
+    // an inconsistent header is flagged via canonicalHeaderWarnings below,
+    // never rewritten. Falls back to a computed header when there's no
     // match.
     const canonicalHeader =
       verification?.matched && verification.entry?.header
@@ -300,6 +426,12 @@ export class NESSystemHandler implements SystemHandler {
     // set; iNES 1.0 files leave it clear.
     const isNes2 = (header[7] & 0x0c) === 0x08;
 
+    // Emitted the verified canonical header? Flag it if it can't describe
+    // the bytes we just attached (corrupt DAT entry) — without rewriting it.
+    const warnings = canonicalHeader
+      ? canonicalHeaderWarnings(header, rawData.length)
+      : [];
+
     return {
       data: output,
       filename: `dump_mapper${mapper}.nes`,
@@ -315,9 +447,13 @@ export class NESSystemHandler implements SystemHandler {
             : chrRamKB > 0
               ? `None (${chrRamKB} KB CHR-RAM)`
               : "None",
-        Mirroring: mirroring,
+        // Region/timing, console, mirroring, expansion device and submapper —
+        // read from the header we actually emit, so the report stays truthful
+        // even after the user edits them on the completion screen.
+        ...nesHeaderMeta(header),
         Battery: battery ? "Yes" : "No",
       },
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   }
 
@@ -382,6 +518,159 @@ export class NESSystemHandler implements SystemHandler {
     // No header on the entry (e.g. non-headered system), or no content
     // passed in. The CRC32 match alone is treated as exact.
     return { matched: true, entry, confidence: "exact" };
+  }
+
+  /**
+   * Per-section breakdown of a finished dump: the PRG ROM and the CHR ROM,
+   * each with its size and CRC32 — the chip-level view NESCartDB / No-Intro
+   * list. The combined size + hashes already appear in the completion
+   * screen's main hash block, so they aren't repeated here. `rawData` is the
+   * output `.nes` file (16-byte header + PRG + CHR), so its iNES header is
+   * authoritative for where each region starts.
+   *
+   * Returns null when there's nothing to break down: a malformed header, a
+   * CHR-RAM cart with no CHR ROM (PRG would just equal the whole ROM), or a
+   * header whose declared sizes don't add up to the file — in which case any
+   * split would be a guess.
+   */
+  summarizeDump(rawData: Uint8Array): DumpSummary | null {
+    const layout = parseNesRomLayout(rawData);
+    if (!layout) return null;
+    const { dataStart, prgBytes, chrBytes } = layout;
+
+    // No CHR ROM means the cart uses CHR-RAM (which we don't dump), so the
+    // file is PRG only — a single PRG row would just restate the combined ROM
+    // shown above. Nothing to add.
+    if (chrBytes <= 0) return null;
+
+    // The declared regions must exactly cover the file; if they don't, the
+    // header disagrees with the dumped bytes and any split would mislead.
+    if (dataStart + prgBytes + chrBytes !== rawData.length) return null;
+
+    const prg = rawData.subarray(dataStart, dataStart + prgBytes);
+    const chr = rawData.subarray(
+      dataStart + prgBytes,
+      dataStart + prgBytes + chrBytes,
+    );
+
+    const sectionRow = (
+      label: string,
+      bytes: Uint8Array,
+    ): DumpSummaryCell[] => [
+      label,
+      formatBytes(bytes.length),
+      hexStr(crc32(bytes)),
+    ];
+
+    return {
+      title: "ROM sections",
+      columns: ["Section", "Size", "CRC32"],
+      monoColumns: [1, 2],
+      rightAlignColumns: [1, 2],
+      rows: [sectionRow("PRG ROM", prg), sectionRow("CHR ROM", chr)],
+    };
+  }
+
+  /**
+   * Editable NES 2.0 header fields for an unverified dump — region/timing,
+   * console type, mirroring, default expansion device, submapper. Each value
+   * defaults to whatever the produced header already carries (the sensible
+   * defaults `buildOutputFile` baked in), overlaid with the user's edits.
+   * `file` is the output `.nes` bytes; only its 16-byte header is read.
+   */
+  getHeaderFields(file: Uint8Array, overrides: ConfigValues): ResolvedConfigField[] {
+    if (file.length < 16) return [];
+    const parsed = parseEditableHeaderFields(file);
+
+    // Mapper number from the header — only to note runtime-controlled mirroring.
+    const mapper = (file[6] >> 4) | (file[7] & 0xf0) | ((file[8] & 0x0f) << 8);
+    const mapperControlsMirroring =
+      getMapperDef(mapper)?.mirroring === "mapper_controlled";
+
+    const value = (key: string, fallback: string | number) =>
+      overrides[key] ?? fallback;
+
+    return [
+      {
+        key: "tvSystem",
+        label: "Region / Timing",
+        type: "select",
+        value: value("tvSystem", parsed.tvSystem),
+        options: NES_TIMING_OPTIONS,
+        group: "header",
+        order: 0,
+      },
+      {
+        key: "consoleType",
+        label: "Console type",
+        type: "select",
+        value: value("consoleType", parsed.consoleType),
+        options: NES_CONSOLE_TYPE_OPTIONS,
+        group: "header",
+        order: 1,
+      },
+      {
+        key: "mirroring",
+        label: "Mirroring",
+        type: "select",
+        value: value("mirroring", parsed.mirroring),
+        options: NES_MIRRORING_OPTIONS,
+        group: "header",
+        order: 2,
+        helpText: mapperControlsMirroring
+          ? "This mapper sets mirroring at runtime; the header value is informational."
+          : undefined,
+      },
+      {
+        key: "expansionDevice",
+        label: "Default expansion device",
+        type: "select",
+        value: value("expansionDevice", parsed.expansionDevice),
+        options: NES_EXPANSION_DEVICE_OPTIONS,
+        group: "header",
+        order: 3,
+      },
+      {
+        key: "submapper",
+        label: "Submapper",
+        type: "select",
+        value: value("submapper", parsed.submapper),
+        options: NES_SUBMAPPER_OPTIONS,
+        group: "header",
+        order: 4,
+      },
+    ];
+  }
+
+  /**
+   * Apply header-field overrides to a finished dump, rewriting only the header
+   * bytes the editor exposes and leaving the PRG/CHR content (and its hashes)
+   * untouched. Unset fields keep the file's current values.
+   */
+  applyHeaderOverrides(file: Uint8Array, overrides: ConfigValues): Uint8Array {
+    const fields: Partial<EditableHeaderFields> = {};
+    if (overrides.tvSystem !== undefined)
+      fields.tvSystem = overrides.tvSystem as EditableHeaderFields["tvSystem"];
+    if (overrides.consoleType !== undefined)
+      fields.consoleType = overrides.consoleType as number;
+    if (overrides.mirroring !== undefined)
+      fields.mirroring = overrides.mirroring as NesMirroring;
+    if (overrides.expansionDevice !== undefined)
+      fields.expansionDevice = overrides.expansionDevice as number;
+    if (overrides.submapper !== undefined)
+      fields.submapper = overrides.submapper as number;
+    return applyEditableHeaderFields(file, fields);
+  }
+
+  /**
+   * Human-readable display values for the editable header fields of a finished
+   * dump, keyed for the report's "Dumping Settings" section. The wizard merges
+   * this over the output's original meta after a header edit so the saved
+   * report matches the saved bytes.
+   */
+  headerMeta(file: Uint8Array): Record<string, string> {
+    if (file.length < 16) return {};
+    return nesHeaderMeta(file);
   }
 
   /**

@@ -7,7 +7,9 @@ import type {
   CartridgeInfo,
   DumpSummary,
   DumpSummaryCell,
+  ResolvedConfigField,
 } from "@/lib/types";
+import { ConfigField } from "@/components/shared/config-field";
 import { hexStr, formatBytes } from "@/lib/core/hashing";
 import { saveFile } from "@/lib/core/file-save";
 import { generateDumpReport } from "@/lib/core/dump-report";
@@ -72,6 +74,14 @@ interface CompleteStepProps {
   saveOnly: boolean;
   /** Optional system-specific breakdown of the dump's contents. */
   summary?: DumpSummary | null;
+  /**
+   * Editable header fields for an unverified dump (NES 2.0 region/timing,
+   * console, controller, …). Null/empty when none apply (verified dump or a
+   * system with no editable header), in which case no editor is shown.
+   */
+  headerFields?: ResolvedConfigField[] | null;
+  /** Called when the user edits a header field; keyed by field key. */
+  onHeaderFieldChange?: (key: string, value: unknown) => void;
   /** Event-log sink, used to surface a failed save. */
   log: (message: string, level?: "info" | "warn" | "error") => void;
 }
@@ -86,6 +96,8 @@ export function CompleteStep({
   hotSwap,
   saveOnly,
   summary,
+  headerFields,
+  onHeaderFieldChange,
   log,
 }: CompleteStepProps) {
   const verified = result.verification.matched;
@@ -219,7 +231,11 @@ export function CompleteStep({
                     {summary.columns.map((c, i) => (
                       <th
                         key={i}
-                        className="px-3 py-1.5 text-left font-normal"
+                        className={`px-3 py-1.5 font-normal ${
+                          summary.rightAlignColumns?.includes(i)
+                            ? "text-right"
+                            : "text-left"
+                        }`}
                       >
                         {c}
                       </th>
@@ -233,10 +249,12 @@ export function CompleteStep({
                         const mono = summary.monoColumns?.includes(j) ?? false;
                         const muted =
                           summary.mutedColumns?.includes(j) ?? false;
+                        const right =
+                          summary.rightAlignColumns?.includes(j) ?? false;
                         return (
                           <td
                             key={j}
-                            className={`px-3 py-1 ${mono ? "font-mono" : ""} ${muted ? "text-muted-foreground" : ""}`}
+                            className={`px-3 py-1 ${mono ? "font-mono" : ""} ${muted ? "text-muted-foreground" : ""} ${right ? "text-right" : ""}`}
                           >
                             {typeof cell === "string" ? (
                               cell
@@ -258,6 +276,34 @@ export function CompleteStep({
             )}
           </div>
         )}
+
+        {/* Header editor — unverified dumps only (the DB supplies these on a
+            match). Edits rewrite the saved file's header; hashes are unaffected. */}
+        {!verified &&
+          !saveOnly &&
+          headerFields &&
+          headerFields.length > 0 &&
+          onHeaderFieldChange && (
+            <div className="flex flex-col gap-2">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                NES 2.0 Header
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                No database match — set any fields the cartridge can't report.
+                They're written into the saved file's header and don't change
+                the dump's hashes.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {headerFields.map((field) => (
+                  <ConfigField
+                    key={field.key}
+                    field={field}
+                    onChange={(v) => onHeaderFieldChange(field.key, v)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">

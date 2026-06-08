@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildNes2Header } from "./nes-header";
+import {
+  buildNes2Header,
+  parseEditableHeaderFields,
+  applyEditableHeaderFields,
+} from "./nes-header";
 
 /** Every NES 2.0 header carries the magic and the 2.0 indicator (byte 7 bits 2-3 = 10). */
 function expectNes2Magic(h: Uint8Array) {
@@ -138,5 +142,88 @@ describe("buildNes2Header", () => {
         battery: false,
       }),
     ).toThrow(/too large/);
+  });
+});
+
+describe("editable header fields", () => {
+  // A non-trivial baseline: mapper 4 (MMC3), battery on, vertical mirroring,
+  // submapper bits and a mapper high nibble present so the preserve-checks bite.
+  const baseline = () =>
+    buildNes2Header({
+      prgBytes: 128 * 1024,
+      chrBytes: 128 * 1024,
+      mapper: 4,
+      submapper: 3,
+      mirroring: "vertical",
+      battery: true,
+    });
+
+  it("round-trips through parse → apply → parse", () => {
+    const h = baseline();
+    const fields = parseEditableHeaderFields(h);
+    const rebuilt = applyEditableHeaderFields(h, fields);
+    expect(parseEditableHeaderFields(rebuilt)).toEqual(fields);
+    // Applying the parsed-back fields changes nothing.
+    expect(Array.from(rebuilt)).toEqual(Array.from(h));
+  });
+
+  it("writes each editable field into the right byte", () => {
+    const h = applyEditableHeaderFields(baseline(), {
+      tvSystem: "pal",
+      consoleType: 1,
+      mirroring: "four_screen",
+      expansionDevice: 8,
+      submapper: 5,
+    });
+    expect(h[12] & 0x03).toBe(1); // PAL timing
+    expect(h[7] & 0x03).toBe(1); // Vs. System console type
+    expect(h[6] & 0x08).toBe(0x08); // four-screen
+    expect(h[15] & 0x3f).toBe(8); // Zapper
+    expect((h[8] >> 4) & 0x0f).toBe(5); // submapper
+    expect(parseEditableHeaderFields(h)).toEqual({
+      tvSystem: "pal",
+      consoleType: 1,
+      mirroring: "four_screen",
+      expansionDevice: 8,
+      submapper: 5,
+    });
+  });
+
+  it("preserves the bits each field must not touch", () => {
+    const h = baseline();
+    const before = { b6: h[6], b7: h[7], b8: h[8] };
+    const out = applyEditableHeaderFields(h, {
+      consoleType: 2,
+      mirroring: "horizontal",
+      submapper: 0,
+    });
+    // NES 2.0 indicator (byte 7 bits 2-3) and mapper mid nibble survive.
+    expect(out[7] & 0x0c).toBe(0x08);
+    expect(out[7] & 0xf0).toBe(before.b7 & 0xf0);
+    // Battery (bit 1), trainer (bit 2), mapper low nibble survive byte-6 edit.
+    expect(out[6] & 0x02).toBe(before.b6 & 0x02);
+    expect(out[6] & 0x04).toBe(before.b6 & 0x04);
+    expect(out[6] & 0xf0).toBe(before.b6 & 0xf0);
+    // Mapper high nibble (byte 8 low nibble) survives the submapper edit.
+    expect(out[8] & 0x0f).toBe(before.b8 & 0x0f);
+  });
+
+  it("only writes provided fields and never the content bytes", () => {
+    // A full file: header + PRG + CHR with recognizable content.
+    const header = baseline();
+    const content = new Uint8Array(64).map((_, i) => (i * 7) & 0xff);
+    const file = new Uint8Array(header.length + content.length);
+    file.set(header, 0);
+    file.set(content, header.length);
+
+    const out = applyEditableHeaderFields(file, { tvSystem: "dendy" });
+    // Only byte 12 changed in the header; everything else identical.
+    expect(out[12] & 0x03).toBe(3);
+    expect(Array.from(out.subarray(0, 12))).toEqual(
+      Array.from(file.subarray(0, 12)),
+    );
+    expect(Array.from(out.subarray(13))).toEqual(
+      Array.from(file.subarray(13)),
+    );
   });
 });

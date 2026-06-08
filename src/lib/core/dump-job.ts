@@ -108,6 +108,11 @@ export class DumpJobImpl {
         readConfig,
         verification,
       );
+      // Surface any build-time warnings (e.g. a verified No-Intro header
+      // whose size/trainer fields don't describe the dump). The file is
+      // still emitted as verified — these only flag a suspect DAT entry.
+      for (const warning of outputFile.warnings ?? [])
+        this.log(warning, "warn");
 
       const result: DumpResult = {
         rom: outputFile,

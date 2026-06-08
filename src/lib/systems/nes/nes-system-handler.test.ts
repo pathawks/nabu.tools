@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { NESSystemHandler } from "./nes-system-handler";
 import { NES_MAPPER_DB } from "./nes-constants";
+import { buildNes2Header } from "./nes-header";
+import { crc32, hexStr, formatBytes } from "@/lib/core/hashing";
 
 describe("NES config sizing", () => {
   const handler = new NESSystemHandler();
@@ -89,5 +91,249 @@ describe("NES computed-header PRG-RAM declarations (buildOutputFile)", () => {
         (o) => !o.disabled,
       ),
     ).toBe(true);
+  });
+});
+
+describe("NES dump summary (per-section hashes)", () => {
+  const handler = new NESSystemHandler();
+
+  /** Build a headered `.nes` file with distinct fill bytes per region. */
+  const makeNesFile = (prgBytes: number, chrBytes: number) => {
+    const header = buildNes2Header({
+      prgBytes,
+      chrBytes,
+      mapper: 0,
+      mirroring: "horizontal",
+      battery: false,
+    });
+    const prg = new Uint8Array(prgBytes).fill(0xa5);
+    const chr = new Uint8Array(chrBytes).fill(0x5a);
+    const file = new Uint8Array(header.length + prgBytes + chrBytes);
+    file.set(header, 0);
+    file.set(prg, header.length);
+    file.set(chr, header.length + prgBytes);
+    return { file, prg, chr };
+  };
+
+  it("reports per-section PRG and CHR size + CRC32 from the header", () => {
+    const prgBytes = 32 * 1024;
+    const chrBytes = 8 * 1024;
+    const { file, prg, chr } = makeNesFile(prgBytes, chrBytes);
+
+    const summary = handler.summarizeDump(file);
+    expect(summary).not.toBeNull();
+    expect(summary!.columns).toEqual(["Section", "Size", "CRC32"]);
+    // Size and CRC32 columns are right-aligned.
+    expect(summary!.rightAlignColumns).toEqual([1, 2]);
+    // No "Combined" row — the completion screen's main hash block covers it.
+    expect(summary!.rows).toEqual([
+      ["PRG ROM", formatBytes(prgBytes), hexStr(crc32(prg))],
+      ["CHR ROM", formatBytes(chrBytes), hexStr(crc32(chr))],
+    ]);
+  });
+
+  it("returns null for a CHR-RAM cart (no CHR ROM to split out)", () => {
+    const { file } = makeNesFile(32 * 1024, 0);
+    expect(handler.summarizeDump(file)).toBeNull();
+  });
+
+  it("returns null when the header sizes don't cover the file", () => {
+    const { file } = makeNesFile(32 * 1024, 8 * 1024);
+    // Drop the last CHR byte: declared sizes no longer add up to the file.
+    expect(handler.summarizeDump(file.subarray(0, file.length - 1))).toBeNull();
+  });
+
+  it("returns null for a non-NES header", () => {
+    expect(handler.summarizeDump(new Uint8Array(40))).toBeNull();
+  });
+});
+
+describe("NES buildOutputFile canonical-header handling", () => {
+  const handler = new NESSystemHandler();
+  const config = handler.buildReadConfig({
+    mapper: 0,
+    prgSizeKB: 32,
+    chrSizeKB: 8,
+  });
+  const raw = new Uint8Array(32 * 1024 + 8 * 1024);
+
+  /** A matched verification carrying the given canonical header bytes. */
+  const matchedWith = (header: number[]) => ({
+    matched: true as const,
+    confidence: "exact" as const,
+    entry: { name: "Test Entry", status: "verified" as const, header },
+  });
+
+  it("emits the verified canonical header byte-for-byte, no warnings", () => {
+    // A soft field (PAL TV system → byte 12 = 1) the cart can't self-report:
+    // its survival proves the canonical header was used verbatim.
+    const canonical = Array.from(
+      buildNes2Header({
+        prgBytes: 32 * 1024,
+        chrBytes: 8 * 1024,
+        mapper: 0,
+        mirroring: "horizontal",
+        battery: false,
+        tvSystem: "pal",
+      }),
+    );
+
+    const out = handler.buildOutputFile(raw, config, matchedWith(canonical));
+    expect(Array.from(out.data.subarray(0, 16))).toEqual(canonical);
+    expect(out.data[12]).toBe(1);
+    expect(out.meta?.Source).toBe("No-Intro canonical header");
+    expect(out.warnings ?? []).toEqual([]);
+  });
+
+  it("warns but still emits a canonical header that sets the trainer flag", () => {
+    const canonical = Array.from(
+      buildNes2Header({
+        prgBytes: 32 * 1024,
+        chrBytes: 8 * 1024,
+        mapper: 0,
+        mirroring: "horizontal",
+        battery: false,
+      }),
+    );
+    canonical[6] |= 0x04; // spurious trainer flag
+
+    const out = handler.buildOutputFile(raw, config, matchedWith(canonical));
+    // Trainer bit preserved verbatim — we never rewrite verified bytes.
+    expect(out.data[6] & 0x04).toBe(0x04);
+    expect(out.meta?.Source).toBe("No-Intro canonical header");
+    expect(out.warnings?.some((w) => /trainer/i.test(w))).toBe(true);
+  });
+
+  it("warns but still emits a canonical header whose sizes don't fit the dump", () => {
+    // Declares 16 KB PRG + 16 KB CHR = 32 KB, but the dump is 40 KB.
+    const canonical = Array.from(
+      buildNes2Header({
+        prgBytes: 16 * 1024,
+        chrBytes: 16 * 1024,
+        mapper: 0,
+        mirroring: "horizontal",
+        battery: false,
+      }),
+    );
+
+    const out = handler.buildOutputFile(raw, config, matchedWith(canonical));
+    expect(out.data[4]).toBe(1); // 16 KB PRG declared — emitted verbatim
+    expect(out.meta?.Source).toBe("No-Intro canonical header");
+    expect(out.warnings?.some((w) => /PRG\+CHR/.test(w))).toBe(true);
+  });
+
+  it("uses a computed header with no warnings when nothing matched", () => {
+    const out = handler.buildOutputFile(raw, config, {
+      matched: false,
+      confidence: "none",
+    });
+    expect(out.meta?.Source).toBe("computed");
+    expect(out.warnings ?? []).toEqual([]);
+  });
+
+  it("report meta carries the editable header fields, labelled", () => {
+    const meta = handler.buildOutputFile(raw, config).meta;
+    expect(meta?.["Region/Timing"]).toBe("NTSC");
+    expect(meta?.["Console type"]).toBe("NES / Famicom");
+    expect(meta?.Mirroring).toBe("Horizontal");
+    expect(meta?.Expansion).toBe("Unspecified");
+    expect(meta?.Submapper).toBe("0");
+  });
+});
+
+describe("NES header editor (getHeaderFields / applyHeaderOverrides)", () => {
+  const handler = new NESSystemHandler();
+
+  /** A computed-header NROM file (32 KB PRG + 8 KB CHR), patterned content. */
+  const nromFile = () => {
+    const config = handler.buildReadConfig({
+      mapper: 0,
+      prgSizeKB: 32,
+      chrSizeKB: 8,
+    });
+    const raw = new Uint8Array(32 * 1024 + 8 * 1024).map((_, i) => (i * 3) & 0xff);
+    return handler.buildOutputFile(raw, config).data;
+  };
+
+  const byKey = (fields: ReturnType<typeof handler.getHeaderFields>) =>
+    Object.fromEntries(fields.map((f) => [f.key, f]));
+
+  it("getHeaderFields reflects the header's defaults", () => {
+    const f = byKey(handler.getHeaderFields(nromFile(), {}));
+    expect(f.tvSystem.value).toBe("ntsc");
+    expect(f.consoleType.value).toBe(0);
+    expect(f.mirroring.value).toBe("horizontal");
+    expect(f.expansionDevice.value).toBe(0);
+    expect(f.submapper.value).toBe(0);
+  });
+
+  it("getHeaderFields lets overrides win over the parsed defaults", () => {
+    const f = byKey(
+      handler.getHeaderFields(nromFile(), { tvSystem: "pal", submapper: 7 }),
+    );
+    expect(f.tvSystem.value).toBe("pal");
+    expect(f.submapper.value).toBe(7);
+    expect(f.mirroring.value).toBe("horizontal"); // untouched default
+  });
+
+  it("notes mapper-controlled mirroring in the field help text", () => {
+    // MMC1 (mapper 1) controls mirroring at runtime.
+    const config = handler.buildReadConfig({
+      mapper: 1,
+      prgSizeKB: 32,
+      chrSizeKB: 8,
+    });
+    const raw = new Uint8Array(32 * 1024 + 8 * 1024);
+    const file = handler.buildOutputFile(raw, config).data;
+    const f = byKey(handler.getHeaderFields(file, {}));
+    expect(f.mirroring.helpText).toMatch(/runtime/i);
+  });
+
+  it("applyHeaderOverrides rewrites the header, leaving content and section hashes intact", () => {
+    const file = nromFile();
+    const before = handler.summarizeDump(file);
+
+    const edited = handler.applyHeaderOverrides(file, {
+      tvSystem: "pal",
+      mirroring: "vertical",
+      expansionDevice: 8,
+    });
+
+    // Header reflects the edits.
+    expect(edited[12] & 0x03).toBe(1);
+    expect(edited[6] & 0x01).toBe(1);
+    expect(edited[15] & 0x3f).toBe(8);
+    // Content (bytes 16+) is byte-identical, so the section breakdown is too.
+    expect(Array.from(edited.subarray(16))).toEqual(
+      Array.from(file.subarray(16)),
+    );
+    expect(handler.summarizeDump(edited)).toEqual(before);
+  });
+
+  it("applies cleanly to a CHR-RAM cart (no CHR ROM)", () => {
+    const config = handler.buildReadConfig({
+      mapper: 2,
+      prgSizeKB: 64,
+      chrSizeKB: 0,
+    });
+    const raw = new Uint8Array(64 * 1024);
+    const file = handler.buildOutputFile(raw, config).data;
+
+    const edited = handler.applyHeaderOverrides(file, { mirroring: "vertical" });
+    expect(edited[6] & 0x01).toBe(1);
+    expect(edited.length).toBe(file.length);
+    expect(handler.getHeaderFields(file, {})).toHaveLength(5);
+  });
+
+  it("headerMeta reflects an edited header (so the report matches the file)", () => {
+    const edited = handler.applyHeaderOverrides(nromFile(), {
+      tvSystem: "pal",
+      mirroring: "vertical",
+      expansionDevice: 8,
+    });
+    const meta = handler.headerMeta(edited);
+    expect(meta["Region/Timing"]).toBe("PAL");
+    expect(meta.Mirroring).toBe("Vertical");
+    expect(meta.Expansion).toBe("Zapper");
   });
 });

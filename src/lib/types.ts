@@ -204,7 +204,13 @@ export interface SystemHandler {
    * byte-for-byte over their own computed header — keeping the output
    * bit-identical to the No-Intro DAT entry rather than relying on our
    * defaults for the bits the cart can't self-report (TV system,
-   * expansion device, submapper, etc.).
+   * expansion device, submapper, etc.). The match is verified by
+   * re-hashing `header || content`, so the emitted file equals the
+   * verified entry byte-for-byte — emit the canonical header as-is even
+   * if it looks unusual. A header that can't describe the attached bytes
+   * (e.g. a trainer flag the dump can't satisfy, or size fields that
+   * don't sum to the content) is surfaced via {@link OutputFile.warnings}
+   * rather than rewritten — we never second-guess the verified bytes.
    */
   buildOutputFile(
     rawData: Uint8Array,
@@ -225,6 +231,32 @@ export interface SystemHandler {
   ): VerificationResult | Promise<VerificationResult>;
   /** Optional: extract a human-readable summary of a completed dump's contents. */
   summarizeDump?(rawData: Uint8Array): DumpSummary | null;
+  /**
+   * Optional: editable header fields offered for an UNVERIFIED dump, so the
+   * user can complete the header the verification DB would otherwise supply
+   * (e.g. NES 2.0 region/timing, console type, default controller). `file` is
+   * the produced output bytes; `overrides` is the user's edits so far, keyed
+   * by field key. Returns [] when the system has no editable header. Pair with
+   * {@link applyHeaderOverrides}; only headered systems implement these.
+   */
+  getHeaderFields?(
+    file: Uint8Array,
+    overrides: ConfigValues,
+  ): ResolvedConfigField[];
+  /**
+   * Optional: apply header-field overrides to a finished dump, returning new
+   * output bytes with the header rewritten and the content left untouched.
+   * Operates on the original `file` plus `overrides` (never a previously
+   * edited file). No-op fields fall back to the file's current values.
+   */
+  applyHeaderOverrides?(file: Uint8Array, overrides: ConfigValues): Uint8Array;
+  /**
+   * Optional: human-readable display values for the editable header fields of
+   * a finished dump, keyed for the report's "Dumping Settings" section. Lets
+   * the wizard refresh the report meta after a header edit so the saved report
+   * matches the saved bytes. Pairs with {@link getHeaderFields}/{@link applyHeaderOverrides}.
+   */
+  headerMeta?(file: Uint8Array): Record<string, string>;
   /**
    * Optional: post-dump heuristic checks over the unheadered raw bytes
    * that apply regardless of which device or mapper produced them — e.g.
@@ -261,6 +293,8 @@ export interface DumpSummary {
   monoColumns?: number[];
   /** Column indices to render with muted/secondary text color (e.g., row IDs). */
   mutedColumns?: number[];
+  /** Column indices to right-align (e.g., sizes, hashes, counts). */
+  rightAlignColumns?: number[];
   /** Rows of cells; each row's length should equal `columns.length`. */
   rows: DumpSummaryCell[][];
   /** Optional summary line below the table (e.g., counts). */
@@ -335,6 +369,13 @@ export interface OutputFile {
    * based on whether the dump is save-only or a ROM.
    */
   actionLabel?: string;
+  /**
+   * Build-time warnings about the produced file that should be surfaced
+   * loudly in the event log — e.g. a matched No-Intro header whose
+   * size/trainer fields disagreed with the dump (a should-never-happen
+   * integrity signal). Empty/omitted means none.
+   */
+  warnings?: string[];
 }
 
 export interface VerificationHashes {

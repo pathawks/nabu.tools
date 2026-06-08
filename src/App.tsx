@@ -86,6 +86,10 @@ function App() {
     null,
   );
   const [configValues, setConfigValues] = useState<ConfigValues>({});
+  // User edits to the NES 2.0 header on the completion screen, for unverified
+  // dumps only. Keyed by header-field key; empty means "use the defaults the
+  // computed header already carries". Reset on every new dump / teardown.
+  const [headerOverrides, setHeaderOverrides] = useState<ConfigValues>({});
   const [autoDetected, setAutoDetected] = useState<CartridgeInfo | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [unsupportedDetection, setUnsupportedDetection] = useState<{
@@ -232,6 +236,7 @@ function App() {
   const clearSessionState = useCallback(() => {
     setSelectedSystem(null);
     setConfigValues({});
+    setHeaderOverrides({});
     setAutoDetected(null);
     setUnsupportedDetection(null);
     dumpJob.reset();
@@ -276,18 +281,62 @@ function App() {
     return "idle" as const;
   }, [dumpJob.state, connection.driver]);
 
+  // Apply the user's header edits (unverified dumps only) to the produced ROM.
+  // Identity passthrough whenever there's nothing to apply — verified dump, no
+  // edits, or a system without an editable header — so downstream memos (e.g.
+  // the icon-allocating PS1 summary) don't churn on unrelated re-renders.
+  const editedResult = useMemo(() => {
+    const result = dumpJob.result;
+    if (
+      !result?.rom ||
+      result.verification.matched ||
+      !selectedSystem?.applyHeaderOverrides ||
+      Object.keys(headerOverrides).length === 0
+    ) {
+      return result;
+    }
+    const data = selectedSystem.applyHeaderOverrides(
+      result.rom.data,
+      headerOverrides,
+    );
+    return {
+      ...result,
+      rom: {
+        ...result.rom,
+        data,
+        // Refresh the report meta from the edited header so the saved report
+        // matches the saved bytes (e.g. an edited Mirroring / Region).
+        meta: { ...result.rom.meta, ...(selectedSystem.headerMeta?.(data) ?? {}) },
+      },
+    };
+  }, [dumpJob.result, selectedSystem, headerOverrides]);
+
   // Decoding the PS1 dump summary allocates fresh icon arrays per call, which
   // would restart the IconCanvas animation on every unrelated re-render
   // (e.g. log-panel updates). Memoize on the rom data reference.
   const dumpSummary = useMemo(() => {
-    const data = dumpJob.result?.rom?.data;
+    const data = editedResult?.rom?.data;
     if (!data) return null;
     return selectedSystem?.summarizeDump?.(data) ?? null;
-  }, [selectedSystem, dumpJob.result?.rom?.data]);
+  }, [selectedSystem, editedResult?.rom?.data]);
+
+  // Editable NES 2.0 header fields, offered only for an unverified dump (the
+  // verified path uses the canonical DB header). Built from the ORIGINAL ROM
+  // bytes overlaid with the user's edits — never the already-edited file.
+  const headerFields = useMemo(() => {
+    const result = dumpJob.result;
+    if (!result?.rom || result.verification.matched) return null;
+    const fields = selectedSystem?.getHeaderFields?.(
+      result.rom.data,
+      headerOverrides,
+    );
+    return fields && fields.length > 0 ? fields : null;
+  }, [dumpJob.result, selectedSystem, headerOverrides]);
 
   const handleSelectSystem = useCallback(
     async (system: SystemHandler) => {
       dumpJob.reset();
+      setHeaderOverrides({});
 
       // Do auto-detection BEFORE updating state, so the UI renders once
       // with the final values instead of flashing empty then populated.
@@ -348,6 +397,8 @@ function App() {
 
   const handleStartDump = useCallback(async () => {
     if (!connection.driver || !selectedSystem) return;
+    // A fresh dump starts with no header edits carried over from the last one.
+    setHeaderOverrides({});
     // Resolve field defaults for locked/unset keys (e.g. backupSave, battery)
     // so locked checkbox values that the user can't interact with are included.
     const resolved = seedConfigDefaults(
@@ -554,7 +605,7 @@ function App() {
                 )}
                 {dumpJob.state === "complete" && dumpJob.result && (
                   <CompleteStep
-                    result={dumpJob.result}
+                    result={editedResult ?? dumpJob.result}
                     // No placeholder default: CompleteStep owns the fallback
                     // chain (verified name → title → "(Unverified) <CRC32>"),
                     // and a truthy placeholder here would short-circuit it.
@@ -570,6 +621,10 @@ function App() {
                         ?.operations.includes("dump_rom")
                     }
                     summary={dumpSummary}
+                    headerFields={headerFields}
+                    onHeaderFieldChange={(key, value) =>
+                      setHeaderOverrides((prev) => ({ ...prev, [key]: value }))
+                    }
                     log={log}
                   />
                 )}

@@ -144,3 +144,77 @@ export function buildNes2Header(p: Nes2HeaderInputs): Uint8Array {
 
   return h;
 }
+
+/** TV-system bits (byte 12) → name, the inverse of {@link TV_SYSTEM_BITS}. */
+const TV_SYSTEM_BY_BITS: readonly NesTvSystem[] = ["ntsc", "pal", "multi", "dendy"];
+
+/**
+ * The NES 2.0 header fields a finished dump can't pin from its own bytes and
+ * that a user may want to set when there's no DB entry to supply them. These
+ * map to header bytes 6 (mirroring), 7 (console type), 8 (submapper), 12
+ * (CPU/PPU timing) and 15 (default expansion device) — none of which affect
+ * the PRG/CHR content or its hashes.
+ */
+export interface EditableHeaderFields {
+  tvSystem: NesTvSystem;
+  consoleType: number;
+  mirroring: NesMirroring;
+  expansionDevice: number;
+  submapper: number;
+}
+
+/** Read the editable fields back out of a 16-byte iNES / NES 2.0 header. */
+export function parseEditableHeaderFields(
+  header: Uint8Array,
+): EditableHeaderFields {
+  return {
+    tvSystem: TV_SYSTEM_BY_BITS[header[12] & 0x03],
+    consoleType: header[7] & 0x03,
+    mirroring:
+      header[6] & 0x08
+        ? "four_screen"
+        : header[6] & 0x01
+          ? "vertical"
+          : "horizontal",
+    expansionDevice: header[15] & 0x3f,
+    submapper: (header[8] >> 4) & 0x0f,
+  };
+}
+
+/**
+ * Return a copy of `header` (which may be a full `.nes` file — only the first
+ * 16 bytes are touched) with the supplied editable fields written in. Only the
+ * fields present in `fields` are changed; each rewrite preserves the unrelated
+ * bits of its byte (mapper nibbles, the NES 2.0 indicator, battery/trainer
+ * flags). Content bytes (index 16+) are never modified.
+ */
+export function applyEditableHeaderFields(
+  header: Uint8Array,
+  fields: Partial<EditableHeaderFields>,
+): Uint8Array {
+  const h = Uint8Array.from(header);
+
+  if (fields.tvSystem !== undefined) {
+    h[12] = (h[12] & ~0x03) | TV_SYSTEM_BITS[fields.tvSystem];
+  }
+  if (fields.consoleType !== undefined) {
+    // Bits 0-1; preserve the NES 2.0 indicator (bits 2-3) and mapper nibble.
+    h[7] = (h[7] & 0xfc) | (fields.consoleType & 0x03);
+  }
+  if (fields.mirroring !== undefined) {
+    // Bit 0 = vertical, bit 3 = four-screen; preserve battery (1), trainer
+    // (2) and the mapper low nibble (4-7).
+    h[6] =
+      (h[6] & ~0x09) |
+      (fields.mirroring === "vertical" ? 0x01 : 0) |
+      (fields.mirroring === "four_screen" ? 0x08 : 0);
+  }
+  if (fields.submapper !== undefined) {
+    h[8] = (h[8] & 0x0f) | ((fields.submapper & 0x0f) << 4);
+  }
+  if (fields.expansionDevice !== undefined) {
+    h[15] = fields.expansionDevice & 0x3f;
+  }
+
+  return h;
+}
