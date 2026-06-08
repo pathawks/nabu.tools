@@ -11,7 +11,20 @@ export interface NESMapperDef {
     | "mapper_controlled";
   commonlyHasBattery: boolean;
   alwaysHasBattery?: boolean;
+  /**
+   * Battery-backed SRAM capacity in KiB. Drives the "Back up battery
+   * SRAM" opt-in (and the NVRAM declaration, byte 10 high nibble, when
+   * it's checked). Strictly about saves — boards whose $6000 RAM is
+   * volatile work RAM declare `prgRamKB` instead.
+   */
   maxPrgRamKB: number;
+  /**
+   * Volatile PRG work RAM in KiB, declared in the header (byte 10 low
+   * nibble) regardless of the battery opt-in. For boards that need work
+   * RAM at $6000-$7FFF to function (e.g. mapper 268's bank-switch
+   * trampoline) but have nothing worth backing up.
+   */
+  prgRamKB?: number;
   /**
    * Volatile CHR-RAM size in KiB. Used by the NES 2.0 header builder
    * (byte 11 low nibble). Mostly 0 (ROM carts); CHR-RAM mappers carry
@@ -19,8 +32,13 @@ export interface NESMapperDef {
    */
   chrRamKB?: number;
   /**
-   * Optional per-mapper hardware warning, surfaced as a prominent amber
-   * alert in the config UI (e.g. a cart-handling caveat).
+   * Optional per-mapper warning, surfaced as a prominent amber alert in
+   * the config UI when the mapper is selected. Must be DEVICE-AGNOSTIC —
+   * a cart-handling caveat (e.g. Quattro's A/B switch) or an
+   * implementation-maturity note — because it shows on every driver that
+   * can select the mapper. Device-specific "can't dump here" belongs in
+   * the driver's `capability.unsupportedMappers` (which greys the option
+   * out per-device), never here.
    */
   warning?: string;
 }
@@ -149,6 +167,32 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     chrRamKB: 8,
     warning:
       "Set the A/B switch to position A (lockout-defeat OFF) before dumping — leaving it in B can damage the cart or reader.",
+  },
+  {
+    id: 268,
+    name: "Mindkids / CoolBoy",
+    // The SMD172 board family ships up to 32 MiB and the dump walk's
+    // register math covers all of it (the header builder spills sizes
+    // >= 4 MiB into byte 9), but only the sizes listed here have been
+    // validated on hardware — extend the list as bigger boards are.
+    // Listing conservatively also keeps the default (largest = last)
+    // a sane dump length.
+    prgSizesKB: [512, 1024, 2048],
+    chrSizesKB: [0],
+    mirroring: "mapper_controlled",
+    commonlyHasBattery: false,
+    // No battery — so no save opt-in (maxPrgRamKB 0). But multicarts on
+    // this board use volatile PRG-RAM at $6000-$7FFF as the destination
+    // for a runtime-copied bank-switch trampoline; without declaring it
+    // in the header (byte 10 low nibble), emulators reject the copy and
+    // the trampoline-dependent games fail to boot even though the dump
+    // is complete.
+    maxPrgRamKB: 0,
+    prgRamKB: 8,
+    chrRamKB: 256,
+    // No device-agnostic caveat: incompatibility is per-device
+    // (capability.unsupportedMappers greys it out on the INL), and on a
+    // device that can drive this board the dump path is hardware-validated.
   },
 ];
 

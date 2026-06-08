@@ -268,8 +268,14 @@ export class NESSystemHandler implements SystemHandler {
     // CHR-RAM: only present if the cart has no CHR-ROM and the mapper
     // def declares a CHR-RAM size (e.g. mapper 470: 8 KiB).
     const chrRamKB = chrBytes === 0 ? (mapperDef?.chrRamKB ?? 0) : 0;
-    // The SRAM opt-in is battery-backed (NVRAM) when set; we declare no
-    // PRG-RAM when it's unset. A No-Intro match overrides this regardless.
+    // PRG-RAM, two independent declarations mirroring the two DB fields:
+    // volatile work RAM (`prgRamKB`, byte 10 low nibble) is a property of
+    // the board and is declared whether or not a save was read — carts
+    // like the mapper 268 multicarts need it for games to boot in
+    // emulators; battery NVRAM (`maxPrgRamKB`, high nibble) is declared
+    // only when the save opt-in is set. A No-Intro match overrides all of
+    // this regardless.
+    const prgRamKB = mapperDef?.prgRamKB ?? 0;
     const prgNvramKB =
       battery && mapperDef?.maxPrgRamKB ? mapperDef.maxPrgRamKB : 0;
 
@@ -282,7 +288,7 @@ export class NESSystemHandler implements SystemHandler {
           mirroring,
           battery,
           chrRamKB,
-          prgRamKB: 0,
+          prgRamKB,
           prgNvramKB,
         });
 

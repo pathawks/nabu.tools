@@ -26,6 +26,7 @@ import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
 import { quattro } from "./quattro";
+import { mapper268Mindkids } from "./coolboy";
 import type { NesMapper } from "./types";
 
 export const NES_MAPPERS: Record<number, NesMapper> = {
@@ -41,6 +42,14 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   66: gxrom,
   69: fme7,
   232: quattro,
+  // Submapper 1 (Mindkids, outer registers at $5000) — the variant we've
+  // hardware-verified. Submapper 0 (CoolBoy, registers at $6000) shares
+  // the implementation via createMapper268(0) but needs its own catalog
+  // mechanism (submapper isn't part of the config UI) when a cart shows up.
+  // The INL driver pre-flight-rejects this id — the board's CPLD refuses
+  // that device's synthesized writes; see UNSUPPORTED_MAPPERS in
+  // drivers/inl/unsupported-mappers for the hardware-classified account.
+  268: mapper268Mindkids,
 };
 
 export function getNesMapper(id: number): NesMapper | undefined {

@@ -19,6 +19,19 @@ See LICENSE in this repository (same license applies to nabu as a whole).
 
 ================================================================================
 
+famicom-dumper-client
+https://github.com/ClusterM/famicom-dumper-client
+
+The Mapper 268 (CoolBoy / Mindkids) GNROM-mode dump register sequence in
+src/lib/systems/nes/mappers/coolboy.ts was derived from the reference
+implementations in FamicomDumper/mappers/AA6023Sub0.cs and AA6023Sub1.cs.
+
+License: GNU General Public License v3.0
+
+See LICENSE in this repository (same license applies to nabu as a whole).
+
+================================================================================
+
 FlashGBX
 https://github.com/lesserkuma/FlashGBX
 

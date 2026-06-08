@@ -30,21 +30,54 @@ describe("NES config sizing", () => {
   });
 });
 
-describe("NES mapper-option greying", () => {
+describe("NES computed-header PRG-RAM declarations (buildOutputFile)", () => {
   const handler = new NESSystemHandler();
+
+  /** Computed 16-byte header for a mapper + save-opt-in combination. */
+  function headerFor(values: Parameters<typeof handler.buildReadConfig>[0]) {
+    const config = handler.buildReadConfig(values);
+    // No verification entry → the computed (not canonical) header path.
+    const out = handler.buildOutputFile(new Uint8Array(16), config);
+    return out.data.subarray(0, 16);
+  }
+
+  it("declares mapper 268's volatile trampoline RAM without any battery", () => {
+    const h = headerFor({ mapper: 268 });
+    expect(h[6] & 0x02).toBe(0); // no battery bit
+    expect(h[10]).toBe(0x07); // 8 KiB volatile work RAM, no NVRAM
+    expect(h[11]).toBe(0x0c); // 256 KiB CHR-RAM
+  });
+
+  it("declares NVRAM only when the save opt-in is set (MMC3)", () => {
+    const withSave = headerFor({ mapper: 4, backupSave: true });
+    expect(withSave[6] & 0x02).toBe(0x02);
+    expect(withSave[10]).toBe(0x70); // 8 KiB NVRAM, no volatile RAM
+
+    const withoutSave = headerFor({ mapper: 4 });
+    expect(withoutSave[6] & 0x02).toBe(0);
+    expect(withoutSave[10]).toBe(0x00); // no PRG-RAM declared at all
+  });
+
+  it("offers no battery-SRAM opt-in for the battery-less mapper 268", () => {
+    const fields = handler.getConfigFields({ mapper: 268 });
+    expect(fields.some((f) => f.key === "backupSave")).toBe(false);
+    // ...while a battery-capable mapper does get the checkbox.
+    const mmc3Fields = handler.getConfigFields({ mapper: 4 });
+    expect(mmc3Fields.some((f) => f.key === "backupSave")).toBe(true);
+  });
 
   it("greys out mappers the connected device declares unsupported", () => {
     const fields = handler.getConfigFields({ mapper: 0 }, undefined, {
       systemId: "nes",
       operations: ["dump_rom"],
       autoDetect: true,
-      unsupportedMappers: [4],
+      unsupportedMappers: [268],
     });
     const options = fields.find((f) => f.key === "mapper")?.options ?? [];
-    const disabledOpt = options.find((o) => o.value === 4);
-    expect(disabledOpt?.disabled).toBe(true);
+    const m268 = options.find((o) => o.value === 268);
+    expect(m268?.disabled).toBe(true);
     // A disabled mapper's hint is only the reason — no PRG/CHR sizes.
-    expect(disabledOpt?.hint).toBe("not dumpable with this device");
+    expect(m268?.hint).toBe("not dumpable with this device");
     // Enabled mappers still show their sizes.
     expect(options.find((o) => o.value === 0)?.hint).toMatch(/PRG:/);
     // Everything else stays selectable...

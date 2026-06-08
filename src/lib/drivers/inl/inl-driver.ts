@@ -24,6 +24,10 @@ import { dumpRegion } from "./inl-dump";
 import { InlNesBus } from "./inl-nes-bus";
 import { detectCiramMirroring } from "./detect-mirroring";
 import { getNesMapper } from "@/lib/systems/nes/mappers";
+// Catalog mappers whose CPLD refuses this device's synthesized writes, with
+// the full hardware account of why. Used both to grey them out in the config
+// UI and to pre-flight-reject them in readROM.
+import { UNSUPPORTED_MAPPERS } from "./unsupported-mappers";
 
 export class INLDriver implements DeviceDriver {
   readonly id = "inl-retro";
@@ -33,6 +37,9 @@ export class INLDriver implements DeviceDriver {
       systemId: "nes",
       operations: ["dump_rom"],
       autoDetect: true,
+      // Greys these mappers out in the config UI; readROM pre-flight-
+      // rejects them too. See ./unsupported-mappers for why.
+      unsupportedMappers: [...UNSUPPORTED_MAPPERS.keys()],
     },
   ];
 
@@ -118,6 +125,14 @@ export class INLDriver implements DeviceDriver {
 
     const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
+    const unsupportedReason = UNSUPPORTED_MAPPERS.get(mapperId);
+    if (unsupportedReason) {
+      throw new Error(
+        `Mapper ${mapperId} (${mapper.name}) can't be dumped with the INL Retro: ` +
+          `${unsupportedReason}. The cart itself is fine — use a dumper this ` +
+          "board accepts.",
+      );
+    }
 
     // Each mapper drives the cart through the bus; `bus.setup()` (issued
     // inside the mapper before each region) handles the reset/init. The

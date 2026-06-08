@@ -97,6 +97,26 @@ describe("INLDriver teardown", () => {
     expectTeardownTail(fake.calls);
   });
 
+  it.each([
+    [268, 2048], // CPLD refuses this device's writes (hardware-classified)
+  ])(
+    "pre-flight-rejects mapper %i without touching the device",
+    async (mapper, prgKB) => {
+      // The driver must reject before any cart traffic rather than
+      // produce a boot-bank-mirrored garbage dump.
+      const fake = new FakeInlDevice();
+      const driver = makeDriver(fake);
+
+      await expect(
+        driver.readROM({
+          systemId: "nes",
+          params: { mapper, prgSizeBytes: prgKB * 1024, chrSizeBytes: 0 },
+        }),
+      ).rejects.toThrow(/INL Retro/);
+      expect(fake.calls).toHaveLength(0);
+    },
+  );
+
   it("readSave (default path) ends with the engine reset and I/O reset", async () => {
     const fake = new FakeInlDevice();
     const driver = makeDriver(fake);

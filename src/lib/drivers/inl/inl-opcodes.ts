@@ -51,6 +51,16 @@ export const NES = {
   NES_CPU_WR: 0x02,
   NES_MMC1_WR: 0x04,
   NES_DUALPORT_WR: 0x05,
+  // Flash-program a byte on an MMC3 board: three JEDEC unlock writes
+  // ($D555/$AAAA/$D555), then the (operand, misc) write, then $8000<-2 and
+  // a stability poll-read — ALL inside one USB transaction, each a full
+  // nes_cpu_wr M2 cycle microseconds apart. Caution: the tail poll re-reads
+  // the WRITTEN address until two consecutive reads agree, so a target
+  // whose reads flicker (e.g. $5xxx on the mapper-268 board) spins the
+  // firmware until a physical replug — which is exactly why it is NOT used
+  // as an M2-burst write primitive (see UNSUPPORTED_MAPPERS in
+  // ./unsupported-mappers).
+  MMC3_PRG_FLASH_WR: 0x07,
   SET_CUR_BANK: 0x20,
   SET_BANK_TABLE: 0x21,
   SET_NUM_PRG_BANKS: 0x24,

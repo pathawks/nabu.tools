@@ -22,9 +22,14 @@
  * is the one catalog mapper absent: its walk assembles banks out of stream
  * order and snapshots per-block $C000 gate banks, which a sequential stream
  * can't model — its banking is proven in the shared specs.
+ *
+ * Mapper 268 is the one register-aware exception (`MindkidsCart` below): its
+ * consensus read pulls every bank twice, which a sequential stream can't
+ * serve, so that fake decodes the $5000 outer registers arriving over
+ * NES_CPU_WR and snapshots the mapped window at each region start.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { INLDevice } from "./inl-device";
 import { InlNesBus } from "./inl-nes-bus";
 import { BUFFER, OPER, STATUS, MEM } from "./inl-opcodes";
@@ -39,6 +44,7 @@ import { colorDreams } from "@/lib/systems/nes/mappers/color-dreams";
 import { gxrom } from "@/lib/systems/nes/mappers/gxrom";
 import { rambo1 } from "@/lib/systems/nes/mappers/rambo1";
 import { fme7 } from "@/lib/systems/nes/mappers/fme7";
+import { mapper268Mindkids } from "@/lib/systems/nes/mappers/coolboy";
 import type { NesMapper } from "@/lib/systems/nes/mappers/types";
 
 interface RegionConfig {
@@ -248,5 +254,93 @@ describe("InlNesBus region configs with real mappers", () => {
 
     expect(out).toEqual(image);
     expect(fake.regions[0].memType).toBe(MEM.PRGRAM);
+  });
+});
+
+/**
+ * Register-aware fake for Mapper 268: tracks the Mindkids outer registers
+ * written via NES_CPU_WR ($5000-$5003) and serves each dump region from the
+ * 16 KiB window those registers map, snapshotted when the region's buffer is
+ * allocated. GNROM-mode decode mirrors the spec-side model in
+ * `mappers/mappers.test.ts`; until GNROM is engaged, reads return the boot
+ * (power-on menu) window.
+ */
+class MindkidsCart extends FakeCart {
+  private regs = [0, 0, 0, 0];
+  private window: Uint8Array = new Uint8Array(0);
+  private winCursor = 0;
+  private readonly flash: Uint8Array;
+  private readonly boot: Uint8Array;
+  constructor(flash: Uint8Array, boot: Uint8Array) {
+    super();
+    this.flash = flash;
+    this.boot = boot;
+  }
+  override async nes(_op?: number, addr = 0, value = 0): Promise<number> {
+    if (addr < 0x5000 || addr > 0x5fff) {
+      throw new Error(`unexpected CPU write $${addr.toString(16)}`);
+    }
+    this.regs[addr & 3] = value;
+    return 0;
+  }
+  override async buffer(op: number, operand = 0, misc = 0): Promise<number> {
+    if (op === BUFFER.ALLOCATE_BUFFER0) {
+      // Region start: snapshot the currently-mapped $8000 window.
+      this.window = this.currentWindow();
+      this.winCursor = 0;
+    }
+    return super.buffer(op, operand, misc);
+  }
+  override async payloadIn(len = 128): Promise<Uint8Array> {
+    const out = this.window.slice(this.winCursor, this.winCursor + len);
+    this.winCursor += len;
+    return out;
+  }
+  private currentWindow(): Uint8Array {
+    const [r0, r1, , r3] = this.regs;
+    if (!(r3 & 0x10) || !(r0 & 0x40) || !(r1 & 0x80)) return this.boot;
+    const bank =
+      ((r3 >> 1) & 7) |
+      ((r0 & 7) << 3) |
+      (((r1 >> 4) & 1) << 6) |
+      (((r1 >> 2) & 3) << 7) |
+      (((r0 >> 4) & 3) << 9);
+    const off = (bank * 0x4000) % this.flash.length;
+    return this.flash.slice(off, off + 0x4000);
+  }
+}
+
+describe("Mapper 268 (Mindkids) on INL", () => {
+  // 512 KiB keeps the 128-byte-chunk pulls tractable; the full 2 MiB
+  // register-bit coverage runs against the fast bank-aware bus in the
+  // shared mapper specs.
+  it("dumps 512 KiB byte-exact via $5000 writes over NES_CPU_WR", async () => {
+    vi.useFakeTimers();
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(() => {}),
+      vi.spyOn(console, "warn").mockImplementation(() => {}),
+    ];
+    try {
+      const flash = makeImage(512 * 1024); // 32 banks
+      const cart = new MindkidsCart(flash, makeImage(16 * 1024, 5));
+      const bus = new InlNesBus(asDevice(cart));
+
+      const p = mapper268Mindkids.dumpPrgRom(bus, 512);
+      await vi.runAllTimersAsync(); // the per-write settle delays
+      const out = await p;
+
+      expect(out).toEqual(flash);
+      // 32 banks x 2 consensus reads, every region a NESCPU_4KB read
+      // through the $8000 window.
+      expect(cart.regions).toHaveLength(64);
+      expect(
+        cart.regions.every(
+          (r) => r.memType === MEM.NESCPU_4KB && r.mapper === 0x08,
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      spies.forEach((s) => s.mockRestore());
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { NesBus } from "../bus";
 import { bytesEqual } from "./bank-reliability";
 import { nrom } from "./nrom";
@@ -13,16 +13,19 @@ import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
 import { quattro } from "./quattro";
+import { mapper268Mindkids, mapper268Coolboy } from "./coolboy";
 
 /**
  * A deterministic, well-mixed cart image. The multiplicative hash makes
  * every aligned bank distinct (and non-uniform), so the dropout detector
  * never false-positives and bank reconstruction is exactly verifiable.
+ * `seed` makes distinct images distinct (e.g. a boot window that must not
+ * collide with any flash bank).
  */
-function makeImage(bytes: number): Uint8Array {
+function makeImage(bytes: number, seed = 0): Uint8Array {
   const a = new Uint8Array(bytes);
   for (let i = 0; i < bytes; i++)
-    a[i] = (Math.imul(i, 2654435761) >>> 24) & 0xff;
+    a[i] = (Math.imul(i + seed * 0x9e3779b1, 2654435761) >>> 24) & 0xff;
   return a;
 }
 
@@ -994,5 +997,134 @@ describe("Quattro (mapper 232)", () => {
     await expect(quattro.dumpChrRom({} as NesBus, 8)).rejects.toThrow(
       /CHR-RAM/,
     );
+  });
+});
+
+describe("Mapper 268 (Mindkids / CoolBoy)", () => {
+  /**
+   * Models the Mindkids variant (submapper 1) from the silicon side: outer
+   * registers at $5000-$5003, GNROM-mode decode per the nesdev bit layout.
+   * The bank decode inverts the register *layout spec* (which bit field
+   * carries which PRG address line), not the mapper's packing math, so a
+   * packing bug shows up as a wrong-bank read.
+   *
+   * `glitchBank = N` makes bank N's first read return one corrupted byte
+   * (subsequent reads clean) — the transient bank-substitution glitch the
+   * consensus read recovers from.
+   */
+  class MindkidsBus implements NesBus {
+    private regs = [0, 0, 0, 0];
+    private glitched = false;
+    glitchBank = -1;
+    readonly writes: Array<[number, number]> = [];
+    private readonly flash: Uint8Array;
+    constructor(flash: Uint8Array) {
+      this.flash = flash;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      this.writes.push([addr, value]);
+      if (addr >= 0x5000 && addr <= 0x5fff) {
+        this.regs[addr & 3] = value;
+      } else {
+        throw new Error(`unexpected CPU write $${addr.toString(16)}`);
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      const [r0, r1, , r3] = this.regs;
+      // The walk's invariants: GNROM engaged, A17/A18 masks cleared, r2 = 0.
+      expect(r3 & 0x10).toBeTruthy();
+      expect(r0 & 0x40).toBeTruthy();
+      expect(r1 & 0x80).toBeTruthy();
+      expect(this.regs[2]).toBe(0);
+      // Spec-side decode: QQ=r3[3..1] → A14-16, EEE=r0[2..0] → A17-19,
+      // J=r1[4] → A20, KK=r1[3..2] → A22/A21, CC=r0[5..4] → A23/A24.
+      const bank =
+        ((r3 >> 1) & 7) |
+        ((r0 & 7) << 3) |
+        (((r1 >> 4) & 1) << 6) |
+        (((r1 >> 2) & 3) << 7) |
+        (((r0 >> 4) & 3) << 9);
+      const off = (bank * 0x4000) % this.flash.length;
+      const window = this.flash.slice(off, off + length);
+      if (this.glitchBank === bank && !this.glitched) {
+        this.glitched = true;
+        window[0] ^= 0xff; // one transient corrupted read
+      }
+      return window;
+    }
+  }
+
+  /** Run a dump with the per-write settle timers virtualised. */
+  async function dump(
+    bus: NesBus,
+    sizeKB: number,
+    mapper = mapper268Mindkids,
+  ): Promise<Uint8Array> {
+    vi.useFakeTimers();
+    try {
+      const p = mapper.dumpPrgRom(bus, sizeKB);
+      await vi.runAllTimersAsync();
+      return await p;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("walks all 128 GNROM banks of a 2 MiB cart byte-exact", async () => {
+    const flash = makeImage(2048 * 1024);
+    const out = await dump(new MindkidsBus(flash), 2048);
+    expectSameBytes(out, flash);
+  });
+
+  it("issues the exact two-phase register sequence per bank", async () => {
+    const bus = new MindkidsBus(makeImage(32 * 1024)); // 2 banks
+    await dump(bus, 32);
+    // Bank 1: phase 1 carries the menu's transitional $5001=$90/$5003=$00
+    // with the final r0; phase 2 commits r0=$40, r1=$80, r3=$12.
+    expect(bus.writes.slice(8, 16)).toEqual([
+      [0x5000, 0x40],
+      [0x5001, 0x90],
+      [0x5002, 0x00],
+      [0x5003, 0x00],
+      [0x5000, 0x40],
+      [0x5001, 0x80],
+      [0x5002, 0x00],
+      [0x5003, 0x12],
+    ]);
+    // bank 0 + bank 1, 8 writes each, nothing else (no post-walk recheck).
+    expect(bus.writes).toHaveLength(16);
+  });
+
+  it("recovers a transient bank glitch via consensus", async () => {
+    const flash = makeImage(128 * 1024); // 8 banks
+    const bus = new MindkidsBus(flash);
+    bus.glitchBank = 2;
+    const out = await dump(bus, 128);
+    expectSameBytes(out, flash); // the corrupted read never reaches the dump
+  });
+
+  it("returns an empty CHR dump (CHR-RAM-only submapper)", async () => {
+    const out = await mapper268Mindkids.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
+  });
+
+  it("CoolBoy (submapper 0) drives the $6000 outer-register block", async () => {
+    // The only behavioural difference from the Mindkids variant is the
+    // outer-register base; pin that the submapper-0 export targets $6000.
+    const writes: number[] = [];
+    const flash = makeImage(512 * 1024);
+    const bus: NesBus = {
+      setup: async () => {},
+      writeCpu: async (addr) => {
+        writes.push(addr);
+      },
+      readCpu: async (_addr, length) => flash.slice(0, length),
+    };
+    const out = await dump(bus, 512, mapper268Coolboy);
+    expect(out.length).toBe(512 * 1024);
+    expect(writes.some((a) => a >= 0x6000 && a <= 0x6003)).toBe(true);
+    expect(writes.some((a) => a >= 0x5000 && a <= 0x5003)).toBe(false);
   });
 });

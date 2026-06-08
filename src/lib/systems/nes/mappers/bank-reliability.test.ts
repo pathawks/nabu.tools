@@ -4,6 +4,7 @@ import {
   isUniformFill,
   isBankDropout,
   readBankWithRetry,
+  readBankWithConsensus,
 } from "./bank-reliability";
 
 const u8 = (...bytes: number[]) => Uint8Array.from(bytes);
@@ -97,5 +98,56 @@ describe("readBankWithRetry", () => {
     });
     expect(calls).toBe(1);
     expect(Array.from(out)).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe("readBankWithConsensus", () => {
+  /** A read thunk that serves the scripted values in order. */
+  const scripted = (...values: Uint8Array[]) => {
+    let i = 0;
+    return {
+      read: async () => values[i++],
+      calls: () => i,
+    };
+  };
+
+  it("accepts two agreeing reads at face value (outcome 'first')", async () => {
+    const reads = scripted(u8(1, 2, 3), u8(1, 2, 3));
+    const { data, outcome } = await readBankWithConsensus({
+      read: reads.read,
+      label: "bank 1",
+    });
+    expect(outcome).toBe("first");
+    expect(Array.from(data)).toEqual([1, 2, 3]);
+    expect(reads.calls()).toBe(2);
+  });
+
+  it("keeps reading until a value reproduces (outcome 'retried')", async () => {
+    // First two disagree; the third reproduces the FIRST read — consensus
+    // is on any earlier value, not just the immediately preceding one.
+    const reads = scripted(u8(1, 2, 3), u8(9, 9, 9), u8(1, 2, 3));
+    const { data, outcome } = await readBankWithConsensus({
+      read: reads.read,
+      label: "bank 2",
+      log: () => {},
+    });
+    expect(outcome).toBe("retried");
+    expect(Array.from(data)).toEqual([1, 2, 3]);
+    expect(reads.calls()).toBe(3);
+  });
+
+  it("gives up after maxAttempts and accepts the last read ('unresolved')", async () => {
+    const reads = scripted(u8(1), u8(2), u8(3), u8(4));
+    const logs: string[] = [];
+    const { data, outcome } = await readBankWithConsensus({
+      read: reads.read,
+      label: "bank 3",
+      maxAttempts: 4,
+      log: (m) => logs.push(m),
+    });
+    expect(outcome).toBe("unresolved");
+    expect(Array.from(data)).toEqual([4]);
+    expect(reads.calls()).toBe(4);
+    expect(logs.some((m) => m.includes("never agreed"))).toBe(true);
   });
 });
