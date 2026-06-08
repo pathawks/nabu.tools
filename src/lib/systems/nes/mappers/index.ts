@@ -27,6 +27,7 @@ import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
 import { quattro } from "./quattro";
 import { mapper268Mindkids } from "./coolboy";
+import { mapper470 } from "./inx007t";
 import type { NesMapper } from "./types";
 
 export const NES_MAPPERS: Record<number, NesMapper> = {
@@ -50,6 +51,10 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   // that device's synthesized writes; see UNSUPPORTED_MAPPERS in
   // drivers/inl/unsupported-mappers for the hardware-classified account.
   268: mapper268Mindkids,
+  // Vendor-recipe implementation, not yet hardware-validated on a nabu
+  // driver (see the cadence lesson in inx007t.ts); INL pre-flight-
+  // rejects this id too — same CPLD-refusal family as 268.
+  470: mapper470,
 };
 
 export function getNesMapper(id: number): NesMapper | undefined {

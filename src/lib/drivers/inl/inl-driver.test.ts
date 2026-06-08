@@ -99,6 +99,7 @@ describe("INLDriver teardown", () => {
 
   it.each([
     [268, 2048], // CPLD refuses this device's writes (hardware-classified)
+    [470, 1024], // same refusal family (see UNSUPPORTED_MAPPERS)
   ])(
     "pre-flight-rejects mapper %i without touching the device",
     async (mapper, prgKB) => {

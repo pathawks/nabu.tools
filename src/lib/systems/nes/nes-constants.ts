@@ -194,6 +194,20 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     // (capability.unsupportedMappers greys it out on the INL), and on a
     // device that can drive this board the dump path is hardware-validated.
   },
+  {
+    id: 470,
+    name: "INX_007T_V01",
+    prgSizesKB: [1024],
+    chrSizesKB: [0],
+    mirroring: "horizontal",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+    chrRamKB: 8,
+    // Device-agnostic maturity caveat (the INL incompatibility itself is
+    // handled per-device via capability.unsupportedMappers).
+    warning:
+      "The dump recipe for this board is vendor-derived and not yet hardware-validated — verify the result against a known-good reference.",
+  },
 ];
 
 export function getMapperDef(id: number): NESMapperDef | undefined {

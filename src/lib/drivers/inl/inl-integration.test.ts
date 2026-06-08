@@ -27,6 +27,8 @@
  * consensus read pulls every bank twice, which a sequential stream can't
  * serve, so that fake decodes the $5000 outer registers arriving over
  * NES_CPU_WR and snapshots the mapped window at each region start.
+ * Mapper 470 is absent: the INL driver pre-flight-rejects it (same
+ * CPLD-refusal family as 268), and its banking is proven in the shared specs.
  */
 
 import { describe, it, expect, vi } from "vitest";

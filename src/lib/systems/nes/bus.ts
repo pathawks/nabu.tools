@@ -85,4 +85,22 @@ export interface NesBus {
    * that via `writeCpu` first.
    */
   writeSerialRegister?(addr: number, value: number): Promise<void>;
+
+  /**
+   * Write `latchValue` to the CPU-bus register at `latchAddr` and read
+   * `length` bytes from `addr`, as ONE fused device operation with no bus
+   * idle between the write and the read. Optional — a driver supplies this
+   * when its firmware has such a fused op (e.g. a bank-write-then-burst-read
+   * dump primitive), for boards whose bank latch does not survive the idle
+   * gap between a separate `writeCpu` transaction and the following
+   * `readCpu` (mapper 470's inner latch is the known case). Mappers that
+   * need it feature-detect and fall back to split write+read — the same
+   * optional-capability shape as `readChrBankLatched`.
+   */
+  readCpuBankLatched?(
+    latchAddr: number,
+    latchValue: number,
+    addr: number,
+    length: number,
+  ): Promise<Uint8Array>;
 }

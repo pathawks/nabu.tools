@@ -54,6 +54,18 @@
  * (Don't retry the probe via MMC3_PRG_FLASH_WR: its tail polls the written
  * address until two consecutive reads agree, and $5xxx reads flicker on this
  * cart — the firmware spins until a physical replug.)
+ *
+ * ── Mapper 470 (INX_007T_V01 reissue board) ──
+ *
+ * Same refusal family, weaker evidence basis (calibrate accordingly): an
+ * April 2026 session on other hardware recorded "clock-reset blocks bank
+ * progression" for this exact cart on this device class (recalled, the
+ * session itself was lost), and the board's bank latch is demonstrably
+ * cadence-sensitive — it defeated even a dumper whose writes this CPLD
+ * generation otherwise accepts, until the vendor's per-chunk re-latch recipe
+ * was matched (see `inx007t.ts`). Given the formal mapper-268 classification
+ * of this family on this device, pre-flight-rejecting 470 is the honest
+ * default; an instrumented attempt could overturn it.
  */
 
 /** INL-unsupported mapper id → reason shown in the driver's pre-flight error. */
@@ -62,5 +74,11 @@ export const UNSUPPORTED_MAPPERS = new Map<number, string>([
     268,
     "the board's CPLD ignores this device's register writes, so every bank " +
       "reads back as the boot menu (hardware-verified)",
+  ],
+  [
+    470,
+    "the board family refuses this device's synthesized writes (same CPLD " +
+      "family as mapper 268, plus a recorded failure of this exact cart on " +
+      "this device class)",
   ],
 ]);

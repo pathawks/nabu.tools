@@ -14,6 +14,7 @@ import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
 import { quattro } from "./quattro";
 import { mapper268Mindkids, mapper268Coolboy } from "./coolboy";
+import { mapper470 } from "./inx007t";
 
 /**
  * A deterministic, well-mixed cart image. The multiplicative hash makes
@@ -1126,5 +1127,156 @@ describe("Mapper 268 (Mindkids / CoolBoy)", () => {
     expect(out.length).toBe(512 * 1024);
     expect(writes.some((a) => a >= 0x6000 && a <= 0x6003)).toBe(true);
     expect(writes.some((a) => a >= 0x5000 && a <= 0x5003)).toBe(false);
+  });
+});
+
+describe("Mapper 470 (INX_007T_V01)", () => {
+  /**
+   * Evidence-matched (pessimistic) board model: the inner ($8000) bank
+   * latch does NOT survive any bus idle, so it is usable only inside the
+   * fused `readCpuBankLatched` call; a plain readCpu always serves the
+   * power-on default inner bank (0) because the latch decayed in the gap
+   * after the writeCpu transaction. This is the failure signature the
+   * real cart produced against a split write-then-read walk: whole banks
+   * of default-bank content. The outer ($5000) latch holds — also
+   * observed on the real cart.
+   */
+  class InlRomFusedBus implements NesBus {
+    private outer = 0;
+    readonly fusedCalls: Array<[number, number, number, number]> = [];
+    private readonly flash: Uint8Array;
+    constructor(flash: Uint8Array) {
+      this.flash = flash;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr === 0x5000) this.outer = value & 3;
+      // $8000 writes latch... and decay before any later transaction.
+    }
+    private window(inner: number, addr: number, length: number) {
+      const off = this.outer * 0x40000 + inner * 0x8000 + (addr - 0x8000);
+      return this.flash.slice(off, off + length);
+    }
+    async readCpu(addr: number, length: number) {
+      return this.window(0, addr, length); // latch long gone: default bank
+    }
+    async readCpuBankLatched(
+      latchAddr: number,
+      latchValue: number,
+      addr: number,
+      length: number,
+    ) {
+      expect(latchAddr).toBe(0x8000);
+      this.fusedCalls.push([latchAddr, latchValue, addr, length]);
+      return this.window(latchValue & 7, addr, length);
+    }
+  }
+
+  /**
+   * Optimistic board model for the split fallback: the inner latch
+   * survives the write-to-read idle gap but decays after every readCpu
+   * transaction. Validates the fallback's addressing and re-latch
+   * cadence — NOT hardware viability, which the pessimistic model above
+   * shows requires the fused capability.
+   */
+  class InlRomSplitBus implements NesBus {
+    private outer = 0;
+    private inner = 0; // power-on default
+    readonly innerWrites: number[] = [];
+    private readonly flash: Uint8Array;
+    constructor(flash: Uint8Array) {
+      this.flash = flash;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr === 0x5000) {
+        this.outer = value & 3;
+      } else if (addr === 0x8000) {
+        this.innerWrites.push(value);
+        this.inner = value & 7; // board decodes the low 3 bits
+      } else {
+        throw new Error(`unexpected write $${addr.toString(16)}`);
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBeGreaterThanOrEqual(0x8000);
+      const off = this.outer * 0x40000 + this.inner * 0x8000 + (addr - 0x8000);
+      const win = this.flash.slice(off, off + length);
+      this.inner = 0; // the latch decays at the end of every transaction
+      return win;
+    }
+  }
+
+  it("dumps byte-exact through the fused latch+read on a latch that dies at every idle", async () => {
+    const flash = makeImage(1024 * 1024);
+    const bus = new InlRomFusedBus(flash);
+    const out = await mapper470.dumpPrgRom(bus, 1024);
+    expectSameBytes(out, flash);
+  });
+
+  it("issues the vendor's exact fused-call stream: global bank index, 2 KiB chunks", async () => {
+    const bus = new InlRomFusedBus(makeImage(1024 * 1024));
+    await mapper470.dumpPrgRom(bus, 1024);
+    // 32 banks x 16 chunks of 2 KiB, each call latching $8000 with the
+    // GLOBAL 32 KiB bank index (0-31) — the value stream the vendor's
+    // hardware-validated routine emits.
+    const expected: Array<[number, number, number, number]> = [];
+    for (let g = 0; g < 32; g++) {
+      for (let off = 0; off < 0x8000; off += 0x800) {
+        expected.push([0x8000, g, 0x8000 + off, 0x800]);
+      }
+    }
+    expect(bus.fusedCalls).toEqual(expected);
+  });
+
+  it("documents why the fused capability exists: the split walk dies on the same board", async () => {
+    // Strip the capability so the mapper falls back to split write+read
+    // against the pessimistic model: every bank comes back as its
+    // outer's default (inner-0) bank — the real cart's dead-dump
+    // signature, NOT the flash content.
+    const flash = makeImage(1024 * 1024);
+    const bus = new InlRomFusedBus(flash);
+    (bus as { readCpuBankLatched?: unknown }).readCpuBankLatched = undefined;
+    const out = await mapper470.dumpPrgRom(bus, 1024);
+    expect(bytesEqual(out, flash)).toBe(false);
+    for (let outer = 0; outer < 4; outer++) {
+      const defaultBank = flash.subarray(
+        outer * 0x40000,
+        outer * 0x40000 + 0x8000,
+      );
+      for (let inner = 0; inner < 8; inner++) {
+        const start = (outer * 8 + inner) * 0x8000;
+        expectSameBytes(out.subarray(start, start + 0x8000), defaultBank);
+      }
+    }
+  });
+
+  it("split fallback is byte-exact when the latch survives the write-to-read gap", async () => {
+    const flash = makeImage(1024 * 1024);
+    const out = await mapper470.dumpPrgRom(new InlRomSplitBus(flash), 1024);
+    expectSameBytes(out, flash);
+  });
+
+  it("split fallback re-latches the global bank index before every 4 KiB sub-read", async () => {
+    const bus = new InlRomSplitBus(makeImage(1024 * 1024));
+    await mapper470.dumpPrgRom(bus, 1024);
+    // 32 banks x 8 sub-reads, each preceded by a re-latch carrying the
+    // global 32 KiB bank index — pins both the value stream and the
+    // re-latch cadence of the fallback path.
+    const expected = Array.from({ length: 32 }, (_, g) =>
+      new Array<number>(8).fill(g),
+    ).flat();
+    expect(bus.innerWrites).toEqual(expected);
+  });
+
+  it("rejects any PRG size but the board's 1024 KiB", async () => {
+    await expect(
+      mapper470.dumpPrgRom(new InlRomSplitBus(makeImage(1024 * 1024)), 512),
+    ).rejects.toThrow(/1024 KiB/);
+  });
+
+  it("returns an empty CHR dump (CHR-RAM board)", async () => {
+    const out = await mapper470.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
   });
 });
