@@ -12,6 +12,7 @@
 
 import {
   DICT,
+  NES_FLASH_WRITE_OPCODES,
   BUFFER,
   INL_DEVICE_FILTER,
   RETURN,
@@ -116,6 +117,18 @@ export class INLDevice {
    * GET_BANK_TABLE (0x86) which has RL=4.
    */
   async nes(opcode: number, operand = 0, misc = 0): Promise<number> {
+    // Hardware safety: nabu is a read-only dumper and must never program a
+    // cartridge's flash. Refuse every flash-PROGRAM opcode the firmware
+    // exposes (see NES_FLASH_WRITE_OPCODES) before any transfer goes out, so
+    // a stray flash command can never reach a cart that should only be read.
+    if (NES_FLASH_WRITE_OPCODES.has(opcode)) {
+      throw new Error(
+        `Refusing NES flash-write opcode 0x${opcode
+          .toString(16)
+          .padStart(2, "0")}: nabu only reads cartridges and never programs ` +
+          `their flash.`,
+      );
+    }
     const returnLength = opcode >= 0x80 ? (opcode === 0x86 ? 4 : 3) : 1;
     return this.controlIn(DICT.NES, opcode, operand, misc, returnLength);
   }

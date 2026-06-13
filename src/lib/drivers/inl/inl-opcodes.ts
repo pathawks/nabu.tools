@@ -53,13 +53,11 @@ export const NES = {
   NES_DUALPORT_WR: 0x05,
   // Flash-program a byte on an MMC3 board: three JEDEC unlock writes
   // ($D555/$AAAA/$D555), then the (operand, misc) write, then $8000<-2 and
-  // a stability poll-read — ALL inside one USB transaction, each a full
-  // nes_cpu_wr M2 cycle microseconds apart. Caution: the tail poll re-reads
-  // the WRITTEN address until two consecutive reads agree, so a target
-  // whose reads flicker (e.g. $5xxx on the mapper-268 board) spins the
-  // firmware until a physical replug — which is exactly why it is NOT used
-  // as an M2-burst write primitive (see UNSUPPORTED_MAPPERS in
-  // ./unsupported-mappers).
+  // a stability poll-read, all inside one USB transaction. This is one of
+  // the firmware's flash-PROGRAM opcodes — nabu is a read-only dumper and
+  // never programs a cart, so `INLDevice.nes` hard-rejects the whole family
+  // (see NES_FLASH_WRITE_OPCODES below). Kept declared because it documents
+  // the device surface and is the one a one-off experiment once misused.
   MMC3_PRG_FLASH_WR: 0x07,
   SET_CUR_BANK: 0x20,
   SET_BANK_TABLE: 0x21,
@@ -75,6 +73,28 @@ export const NES = {
   GET_BANK_TABLE: 0x86,
   GET_NUM_PRG_BANKS: 0x87,
 } as const;
+
+/**
+ * The INL firmware's NES-dictionary flash-PROGRAM opcodes
+ * (`shared_dict_nes.h`): per-mapper PRG/CHR flash byte-program commands,
+ * 0x07-0x14 contiguous (MMC3 / NROM / CNROM / CDREAM / UNROM / MMC1 / MMC4 /
+ * MAP30 / GTROM), plus MMC3S at 0x26. Each issues a JEDEC unlock+program
+ * sequence that writes the cart's flash chip.
+ *
+ * nabu is a read-only DUMPER — it drives mapper registers to select banks
+ * but never programs a cartridge's non-volatile storage — so `INLDevice.nes`
+ * refuses every opcode in this set, at any address. Listed by value rather
+ * than minting NES.* constants nabu otherwise never uses; only
+ * MMC3_PRG_FLASH_WR is named above (it documents the surface and was the one
+ * a one-off experiment misused). (The lower-level write *primitives* the
+ * firmware also uses for flashing — DISCRETE_EXP0_PRGROM_WR 0x00, M2_LOW_WR
+ * 0x22, FLASH_3V_WR/M2_HIGH_WR 0x25 — are dual-purpose bus-write variants, so
+ * they are deliberately NOT blanket-blocked here.)
+ */
+export const NES_FLASH_WRITE_OPCODES: ReadonlySet<number> = new Set([
+  0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13,
+  0x14, 0x26,
+]);
 
 // ─── Buffer Dictionary ──────────────────────────────────────────────────────
 

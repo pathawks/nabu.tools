@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { INLDevice } from "./inl-device";
+import { NES } from "./inl-opcodes";
 
 /**
  * Build an INLDevice whose underlying USBDevice's controlTransferIn returns a
@@ -46,5 +47,43 @@ describe("INLDevice.payloadIn desync guard", () => {
     const inl = deviceReturning(255);
     await expect(inl.payloadIn(255)).rejects.toThrow(/254/);
     await expect(inl.payloadIn(512)).rejects.toThrow(/254/);
+  });
+});
+
+describe("INLDevice flash-write guard (read-only dumper)", () => {
+  it("refuses MMC3_PRG_FLASH_WR at any address — the misused opcode", async () => {
+    // No device connected: the guard must fire before any transfer, so a
+    // flash command can never reach the cart — at a $5xxx register address
+    // (the one-off experiment's misuse) AND at a real $8000 flash address.
+    const inl = new INLDevice();
+    await expect(inl.nes(NES.MMC3_PRG_FLASH_WR, 0x5000, 0x40)).rejects.toThrow(
+      /flash-write opcode/i,
+    );
+    await expect(inl.nes(NES.MMC3_PRG_FLASH_WR, 0x8000, 0x40)).rejects.toThrow(
+      /flash-write opcode/i,
+    );
+  });
+
+  it("refuses the whole flash-program family, not just MMC3", async () => {
+    // Spot-check the contiguous block (CHR + other-mapper PRG writes) and
+    // the MMC3S stray at 0x26.
+    const inl = new INLDevice();
+    for (const op of [0x08, 0x0a, 0x0e, 0x14, 0x26]) {
+      await expect(inl.nes(op, 0x8000, 0x55)).rejects.toThrow(
+        /never programs/i,
+      );
+    }
+  });
+
+  it("does not interfere with the writes dumping needs", async () => {
+    // Register/serial writes used to select banks must still pass through to
+    // the transport (here they fail only because no device is connected).
+    const inl = new INLDevice();
+    await expect(inl.nes(NES.NES_CPU_WR, 0x5000, 0x40)).rejects.toThrow(
+      /not connected/i,
+    );
+    await expect(inl.nes(NES.NES_MMC1_WR, 0x8000, 0x01)).rejects.toThrow(
+      /not connected/i,
+    );
   });
 });
