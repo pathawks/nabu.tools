@@ -71,6 +71,18 @@ describe("KazzoDevice writes", () => {
     await device.cpuWrite(0xa000, 0xff);
     expect(outCalls[0].data[0]).toBe(0xff ^ WRITE_XOR_MASK); // 0x5a
   });
+
+  it("cpuWriteBytes sends the whole payload to one address in ONE transfer (XOR-masked)", async () => {
+    const { device, outCalls } = makeDevice();
+    // The MMC1 serial-load shape: five bytes to one register address.
+    await device.cpuWriteBytes(0xe000, new Uint8Array([0, 1, 0, 0, 1]));
+    expect(outCalls).toHaveLength(1);
+    expect(outCalls[0].request).toBe(REQUEST.CPU_WRITE_6502);
+    expect(outCalls[0].value).toBe(0xe000);
+    expect(Array.from(outCalls[0].data)).toEqual(
+      [0, 1, 0, 0, 1].map((b) => b ^ WRITE_XOR_MASK),
+    );
+  });
 });
 
 describe("KazzoDevice reads", () => {

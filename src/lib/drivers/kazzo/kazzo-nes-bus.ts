@@ -7,10 +7,13 @@
  * `readCpu`/`readPpu` are direct chunked reads (no double-buffered dump
  * engine like INL needs), and `writeCpu` is a single 6502-style write.
  *
- * It deliberately omits the optional capabilities:
- *  - `writeSerialRegister`: MMC1's five-write serial load is driven as five
- *    plain `writeCpu`s — the kazzo-native approach (anago does the same), so
- *    no atomic-shift helper is needed.
+ * It implements one optional capability and omits two:
+ *  - `writeSerialRegister` (implemented): MMC1's five-write serial load is
+ *    sent as a single CPU_WRITE_6502 carrying all five shifted bytes — the
+ *    firmware writes each to the register address in turn (one 6502 cycle
+ *    each). This matches the reference anago `mmc1_write` (one transfer, not
+ *    five) and removes four USB round-trips from a stateful, all-or-nothing
+ *    load — the failure mode that's most exposed to a per-transaction hiccup.
  *  - `readChrBankLatched`: bus-conflict CHR mappers fall back to
  *    `writeCpu` + `readPpu`, which Kazzo expresses directly.
  *  - `readCpuBankLatched`: the fused latch+read primitive (mapper 470) the
@@ -40,6 +43,20 @@ export class KazzoNesBus implements NesBus {
   async writeCpu(addr: number, value: number): Promise<void> {
     this.signal?.throwIfAborted();
     await this.device.cpuWrite(addr, value);
+  }
+
+  /**
+   * MMC1's five-write serial load, atomically: clock the low 5 bits of
+   * `value` (LSB first) into the shift register at `addr` as one
+   * CPU_WRITE_6502 transfer. Each byte's bit 0 is what MMC1 latches; the
+   * mapper issues the bit-7 reset via `writeCpu` first, so this is only the
+   * data load. Equivalent to five per-bit `writeCpu`s but in a single
+   * transaction (matches the reference anago `mmc1_write`).
+   */
+  async writeSerialRegister(addr: number, value: number): Promise<void> {
+    this.signal?.throwIfAborted();
+    const bits = Uint8Array.from({ length: 5 }, (_, i) => (value >> i) & 0x01);
+    await this.device.cpuWriteBytes(addr, bits);
   }
 
   async readCpu(

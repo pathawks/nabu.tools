@@ -256,17 +256,24 @@ export class KazzoDevice {
   }
 
   /**
+   * Write every byte of `bytes` to CPU-bus `address` in a single
+   * CPU_WRITE_6502 transfer — the firmware runs one 6502 write cycle per byte
+   * at the same address. This is how a serially-loaded register (MMC1's shift
+   * register) is clocked atomically: all five shifted bytes ride in one USB
+   * transfer instead of five. `controlOut` applies the 0xA5 mask to the whole
+   * payload.
+   */
+  async cpuWriteBytes(address: number, bytes: Uint8Array): Promise<void> {
+    await this.controlOut(REQUEST.CPU_WRITE_6502, address, INDEX.IMPLIED, bytes);
+  }
+
+  /**
    * Write one byte to the CPU bus at `address` via the firmware's
    * 6502-style write cycle. Used to poke mapper registers (banking,
-   * MMC1's per-bit serial loads, etc.).
+   * UxROM/MMC3 latches, etc.).
    */
   async cpuWrite(address: number, byte: number): Promise<void> {
-    await this.controlOut(
-      REQUEST.CPU_WRITE_6502,
-      address,
-      INDEX.IMPLIED,
-      new Uint8Array([byte & 0xff]),
-    );
+    await this.cpuWriteBytes(address, new Uint8Array([byte & 0xff]));
   }
 
   /** Write one byte to the PPU bus at `address`. */

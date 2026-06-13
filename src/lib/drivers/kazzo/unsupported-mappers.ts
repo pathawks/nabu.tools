@@ -9,24 +9,25 @@
  * write — and the INL was *hardware-classified* against both boards as
  * unable to land a single register write (see
  * drivers/inl/unsupported-mappers.ts). Kazzo has NOT been separately tested
- * on these carts, so this rejection is by family inference: pre-flighting it
- * is the honest default (a dump would return a boot-bank mirror), and an
- * instrumented attempt could overturn it.
+ * on these carts, so this rejection is only an inference: a dump would likely
+ * return a boot-bank mirror, but an instrumented attempt could overturn it.
  *
- * As with INL, the driver rejects these ids before any cart traffic and
- * feeds the key set to `capability.unsupportedMappers` so the config UI
- * greys them out. The mappers stay in the catalog for devices whose bus
- * drives the CPLD.
+ * >>> INFERENCE OVERTURNED ON HARDWARE (2026-06-08) <<<
+ * The Kazzo dumped a 2 MB mapper-268 (Mindkids submapper 1) cart BYTE-PERFECT,
+ * matching the No-Intro reference (CRC32 E7822236) — so the INL classification
+ * does NOT transfer: the Kazzo's write cycle drives that CPLD where the INL's
+ * didn't. 268 is supported here. 470 (INX_007T_V01) is now ALSO
+ * hardware-validated on the Kazzo (2026-06-09) — a 1 MB cart dumped
+ * byte-perfect against the No-Intro reference (CRC32 55AB5439). A first
+ * attempt mismatched only because data line D7 floated high on a dirty edge
+ * connector (the dump was exactly reference|0x80, low 7 bits pristine); a
+ * clean re-seat verified it — a contact fault, not a mapper limit. Re-add an
+ * id below only if a cart is actually shown un-dumpable on Kazzo.
+ *
+ * The map feeds `capability.unsupportedMappers` (greys the config UI) and
+ * `KazzoDriver.resolveMapper` (pre-flight reject). Mappers stay in the shared
+ * catalog regardless, for devices whose bus drives the CPLD.
  */
 export const UNSUPPORTED_MAPPERS: ReadonlyMap<number, string> = new Map([
-  [
-    268,
-    "this board's CPLD ignores AVR/V-USB synthesized writes (hardware-" +
-      "classified on the closely-related INL Retro); Kazzo is the same family",
-  ],
-  [
-    470,
-    "same CPLD-refusal family as mapper 268 — not separately tested on Kazzo, " +
-      "rejected by inference from the INL classification",
-  ],
+  // (empty — 268 hardware-validated on Kazzo; 470 enabled pending its own test)
 ]);

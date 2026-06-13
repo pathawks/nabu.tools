@@ -3,10 +3,11 @@ import { KazzoNesBus } from "./kazzo-nes-bus";
 import type { KazzoDevice } from "./kazzo-device";
 
 interface Call {
-  m: "phi2Init" | "cpuWrite" | "cpuRead" | "ppuRead";
+  m: "phi2Init" | "cpuWrite" | "cpuWriteBytes" | "cpuRead" | "ppuRead";
   addr?: number;
   value?: number;
   length?: number;
+  bytes?: number[];
 }
 
 /** Records the device calls a KazzoNesBus makes, serving reads from a ramp. */
@@ -18,6 +19,9 @@ function recordingDevice() {
     },
     async cpuWrite(addr: number, value: number) {
       calls.push({ m: "cpuWrite", addr, value });
+    },
+    async cpuWriteBytes(addr: number, bytes: Uint8Array) {
+      calls.push({ m: "cpuWriteBytes", addr, bytes: Array.from(bytes) });
     },
     async cpuRead(
       addr: number,
@@ -49,6 +53,25 @@ describe("KazzoNesBus", () => {
     const { device, calls } = recordingDevice();
     await new KazzoNesBus(device).writeCpu(0x8000, 0x06);
     expect(calls).toEqual([{ m: "cpuWrite", addr: 0x8000, value: 0x06 }]);
+  });
+
+  it("writeSerialRegister batches the MMC1 5-bit load into one cpuWriteBytes", async () => {
+    const { device, calls } = recordingDevice();
+    // 0x12 = 0b10010 → bit 0 of each shifted byte, LSB first: 0,1,0,0,1.
+    await new KazzoNesBus(device).writeSerialRegister(0xe000, 0x12);
+    expect(calls).toEqual([
+      { m: "cpuWriteBytes", addr: 0xe000, bytes: [0, 1, 0, 0, 1] },
+    ]);
+  });
+
+  it("writeSerialRegister surfaces an aborted signal before any write", async () => {
+    const { device, calls } = recordingDevice();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new KazzoNesBus(device, controller.signal).writeSerialRegister(0xe000, 0x1f),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
   });
 
   it("readCpu / readPpu map to the matching device reads and forward progress", async () => {

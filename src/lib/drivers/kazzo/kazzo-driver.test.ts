@@ -93,8 +93,9 @@ describe("KazzoDriver capabilities", () => {
     expect(cap[0].systemId).toBe("nes");
     expect(cap[0].operations).toContain("dump_rom");
     expect(cap[0].autoDetect).toBe(true);
-    // The CPLD-refusal family — same set the driver pre-flight-rejects.
-    expect(cap[0].unsupportedMappers).toEqual([268, 470]);
+    // 268/470 are TEMPORARILY ENABLED for hardware testing (see
+    // ./unsupported-mappers) — nothing greyed out for now.
+    expect(cap[0].unsupportedMappers).toEqual([]);
   });
 });
 
@@ -235,27 +236,9 @@ describe("KazzoDriver.readROM — MMC3 (banked)", () => {
 });
 
 describe("KazzoDriver.readROM — unsupported mappers", () => {
-  it.each([
-    [268, 2048],
-    [470, 1024],
-  ])(
-    "pre-flight-rejects mapper %i without touching the device",
-    async (mapper, prgKB) => {
-      const { device, calls } = fakeKazzo();
-      await expect(
-        makeDriver(device).readROM(
-          romConfig({
-            mapper,
-            prgSizeBytes: prgKB * 1024,
-            chrSizeBytes: 0,
-          }),
-        ),
-      ).rejects.toThrow(/Kazzo/);
-      // Rejected before any cart traffic — not a boot-bank-mirror garbage dump.
-      expect(calls).toHaveLength(0);
-    },
-  );
-
+  // 268 (CoolBoy) and 470 are TEMPORARILY ENABLED for hardware testing (see
+  // ./unsupported-mappers), so they're no longer pre-flight-rejected.
+  // resolveMapper still rejects ids that aren't in the shared catalog at all:
   it("rejects a mapper that isn't in the catalog at all", async () => {
     const { device } = fakeKazzo();
     await expect(
