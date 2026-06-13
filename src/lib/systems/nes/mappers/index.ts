@@ -52,17 +52,18 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   // hardware-verified. Submapper 0 (CoolBoy, registers at $6000) shares
   // the implementation via createMapper268(0) but needs its own catalog
   // mechanism (submapper isn't part of the config UI) when a cart shows up.
-  // The INL driver pre-flight-rejects this id — the board's CPLD refuses
-  // that device's synthesized writes; see UNSUPPORTED_MAPPERS in
-  // drivers/inl/unsupported-mappers for the hardware-classified account.
+  // The board's CPLD needs M2 idling high; the INL driver feature-detects
+  // the firmware's M2 idle level and pre-flight-rejects this id on stock
+  // (M2-low) builds — see M2_IDLE_GATED_MAPPERS in
+  // drivers/inl/unsupported-mappers for the full account.
   268: mapper268Mindkids,
   // Spec-derived implementation (emulator/FPGA consensus), not yet
   // hardware-validated; the only mapper with a miscellaneous-ROM
   // section. See the data-port probe in batmap.ts.
   413: mapper413,
   // Vendor-recipe implementation, not yet hardware-validated on a nabu
-  // driver (see the cadence lesson in inx007t.ts); INL pre-flight-
-  // rejects this id too — same CPLD-refusal family as 268.
+  // driver (see the cadence lesson in inx007t.ts); same M2-idle-gated
+  // CPLD board family as 268 on the INL.
   470: mapper470,
 };
 

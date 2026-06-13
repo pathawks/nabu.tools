@@ -36,9 +36,13 @@
  * latch happens to hold; drivers for this board family should supply
  * the fused capability.
  *
- * NOT yet hardware-validated on any nabu driver. The INL Retro is
- * excluded outright — this board family refuses its synthesized writes;
- * see UNSUPPORTED_MAPPERS in drivers/inl/unsupported-mappers.
+ * Hardware-validated on the Kazzo driver (1 MiB cart byte-perfect vs the
+ * reference, via the split write/read path — so the inner latch survives
+ * inter-transaction idle on a bus whose M2 idles high). On the INL Retro
+ * this board family needs M2 idling high; the driver feature-detects the
+ * firmware's M2 idle level and pre-flight-rejects this id on stock
+ * (M2-low) builds — see M2_IDLE_GATED_MAPPERS in
+ * drivers/inl/unsupported-mappers.
  *
  * References:
  *   - nesdev wiki: nesdev.org/wiki/NES_2.0_Mapper_470

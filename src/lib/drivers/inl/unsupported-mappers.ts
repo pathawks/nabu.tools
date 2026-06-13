@@ -1,99 +1,89 @@
 /**
- * Mappers the INL Retro Programmer cannot drive, even though they exist in
- * the shared, device-agnostic NES catalog.
+ * Catalog mappers gated on an INL firmware feature: M2 idling HIGH.
  *
- * These boards reimplement their mapper in a CPLD that refuses the INL
- * firmware's synthesized bus writes: the firmware idles M2 and emits a
- * single pulse per write, while the CPLD's reset detector wants sustained
- * M2 clocking (a real console runs M2 continuously at 1.79 MHz) before it
- * will latch a register. Reads are unaffected — the firmware's page-read
- * loop issues many back-to-back bus cycles inside one USB transaction — so
- * a dump that ignored this would return a plausible-length file that is
- * really the boot bank mirrored across every slot.
+ * The SMD172-family CPLD reissue boards (mapper 268 CoolBoy / Mindkids,
+ * mapper 470 INX_007T_V01) require the M2/phi2 clock to idle high between
+ * bus operations. Sustained M2-low reads as console-off/reset: register
+ * writes are ignored or reverted, while reads are unaffected. Stock INL
+ * firmware drives M2 low after NES init and leaves it low between USB
+ * transactions, so every bank-select write is silently undone and a dump
+ * would return a plausible-length file that is really the boot bank
+ * mirrored across every slot.
  *
- * `UNSUPPORTED_MAPPERS` maps each such mapper id to the reason shown in
- * the driver's pre-flight rejection, worded to its own evidence basis. The
- * driver rejects these ids before any cart traffic (so no garbage dump is
- * produced) and feeds the key set to `capability.unsupportedMappers`, which
- * greys the options out in the config UI. The mappers stay in the catalog —
- * they are implemented, spec-tested, and (mapper 268) dumpable on devices
- * whose bus drives the CPLD; the INL is simply the wrong tool.
+ * The fix is firmware, not host protocol: a build that parks M2 high at
+ * init and at the exit of every bus primitive (the feature/m2-idle-high
+ * branch of INL-retro-progdump) dumps these boards. Hardware-verified
+ * 2026-06-10: a 2 MiB mapper-268 multicart dumped byte-perfect against the
+ * reference on that firmware, and a conventional MMC3 cart (256 KiB PRG +
+ * 128 KiB CHR) dumped byte-perfect on the same build — the new idle level
+ * does not disturb ordinary mappers. Mapper 470 is the same board family
+ * but has not yet been separately verified on it.
  *
- * ── Mapper 268 (CoolBoy / Mindkids MMC3-clone multicart) ──
+ * The driver feature-detects which firmware is connected: after IO_RESET +
+ * NES_INIT it reads the M2 pin level once (PINPORT CTL_RD, operand M2 —
+ * present in stock firmware too, so the probe itself is universal). Low →
+ * stock: these mappers stay pre-flight-rejected and greyed out via
+ * `capability.unsupportedMappers`. High → m2-idle-high build: both fully
+ * enabled. A probe error counts as low (stock-equivalent). This map is the
+ * single source of which mapper ids are M2-idle-gated;
+ * `unsupportedMappersFor` applies the probe result. The mappers stay in the
+ * shared catalog regardless — they are implemented, spec-tested, and
+ * dumpable on devices whose bus the CPLD accepts.
  *
- * Classified on hardware 2026-06-07 with the mapper's built-in
- * failure-classification pass (see `coolboy.ts`), verdict
- * `writes-not-landing` with the inner-MMC3 discrimination probe also
- * negative:
+ * Historical note: a 2026-06-07 hardware classification of mapper 268 on
+ * stock firmware measured 0/1024 register writes landing (with reads
+ * flawless) and concluded the CPLD needs *sustained M2 clocking* that this
+ * AVR could never provide alongside V-USB. The measurements were real but
+ * mis-attributed: a write that latches and is then reverted when M2 idles
+ * low afterwards is indistinguishable, at probe time, from a write that
+ * never latched. The actual requirement — M2 parked high between
+ * operations — is a few-line firmware change, not an architectural wall.
  *
- *   - The read path is flawless. All 128 GNROM bank reads returned the
- *     cart's power-on window byte-perfect (it matches flash offset 0 of a
- *     reference dump made on other hardware), 256 times in a row — contacts,
- *     power, and read timing are not in question.
- *   - Zero of 1,024 outer-register writes ($5000-$5003, the
- *     hardware-verified two-phase menu-mimicking sequence with 5 ms settles)
- *     latched.
- *   - The inner MMC3 registers ($8000/$8001) — the very write path real MMC3
- *     ASICs accept from this device — did not latch either.
+ * (Don't probe these boards via MMC3_PRG_FLASH_WR — its tail polls the
+ * written address until two consecutive reads agree, and $5xxx reads flicker
+ * on the mapper-268 board, spinning the firmware until a physical replug.)
  *
- * A follow-up experiment (also 2026-06-07) bounded it from the other side:
- * ten back-to-back M2 read+write cycles inside ONE USB transaction
- * (`NES_MMC1_WR`'s burst, microsecond gaps) still did not latch the inner R6
- * register, so no stock-firmware write primitive can cross the threshold.
- * Only a firmware modification that keeps M2 running through the write could,
- * and on this board even that is architecturally hostile: M2 (PC0) has no
- * timer output on the ATmega164A, so continuous M2 must be bit-banged by the
- * same core that has to keep answering V-USB's cycle-critical INT0
- * interrupts mid-operation — gapless M2 and a live USB stack are mutually
- * exclusive here. The vendor's STM32-based boards (hardware USB, real
- * timers) would be the realistic platform. Consistent with all of this, a
- * dumper that drives denser sustained bus activity latches these registers
- * with only occasional stochastic dropouts; discrete logic and real mapper
- * ASICs (everything else in the catalog) latch fine from single M2 pulses.
+ * ── Mapper 413 (BATMAP) — a different gate, never lifted by M2 idle ──
  *
- * (Don't retry the probe via MMC3_PRG_FLASH_WR: its tail polls the written
- * address until two consecutive reads agree, and $5xxx reads flicker on this
- * cart — the firmware spins until a physical replug.)
- *
- * ── Mapper 470 (INX_007T_V01 reissue board) ──
- *
- * Same refusal family, weaker evidence basis (calibrate accordingly): an
- * April 2026 session on other hardware recorded "clock-reset blocks bank
- * progression" for this exact cart on this device class (recalled, the
- * session itself was lost), and the board's bank latch is demonstrably
- * cadence-sensitive — it defeated even a dumper whose writes this CPLD
- * generation otherwise accepts, until the vendor's per-chunk re-latch recipe
- * was matched (see `inx007t.ts`). Given the formal mapper-268 classification
- * of this family on this device, pre-flight-rejecting 470 is the honest
- * default; an instrumented attempt could overturn it.
- *
- * ── Mapper 413 (BATMAP) ──
- *
- * A different reason from the boards above: the INL drives this mapper's
- * registers fine and its PRG/CHR dump correctly. The block is the 8 MiB
- * serial sample flash, which the CPLD clocks from M2 — reading it needs
- * the firmware's NESCPU_SPI413 memtype to pace eight cart-ROM clock reads
- * per byte (see InlNesBus.readSpiDataPort). That memtype is not in a
- * released INL firmware yet, so the flash reads as solid 0xFF and the cart
- * cannot be fully dumped. The read path is implemented and left dormant
- * behind this entry — delete the 413 row below to re-enable it once the
- * upstream firmware lands:
+ * Not M2-idle-gated: the INL drives this mapper's registers fine and dumps
+ * its PRG/CHR correctly, so an M2-idle-high firmware does NOT enable it.
+ * The block is the 8 MiB serial sample flash, which the CPLD clocks from
+ * M2 — reading it needs the firmware's NESCPU_SPI413 memtype to pace eight
+ * cart-ROM clock reads per byte (see InlNesBus.readSpiDataPort). That memtype
+ * is not in a released INL firmware yet, so the flash reads as solid 0xFF and
+ * the cart cannot be fully dumped. The read path is implemented and left
+ * dormant behind ALWAYS_UNSUPPORTED_MAPPERS below — delete the 413 entry
+ * there to re-enable it once the upstream firmware lands:
  *   https://gitlab.com/InfiniteNesLives/INL-retro-progdump/-/merge_requests/45
  */
 
-/** INL-unsupported mapper id → reason shown in the driver's pre-flight error. */
-export const UNSUPPORTED_MAPPERS = new Map<number, string>([
+/** M2-idle-gated mapper id → reason shown in the stock-firmware pre-flight error. */
+export const M2_IDLE_GATED_MAPPERS: ReadonlyMap<number, string> = new Map([
   [
     268,
-    "the board's CPLD ignores this device's register writes, so every bank " +
-      "reads back as the boot menu (hardware-verified)",
+    "this firmware idles the M2 clock low between bus cycles, which the " +
+      "board's CPLD treats as console-off — register writes are reverted " +
+      "and every bank reads back as the boot menu. An M2-idle-high " +
+      "firmware build (feature/m2-idle-high branch of INL-retro-progdump) " +
+      "enables this mapper",
   ],
   [
     470,
-    "the board family refuses this device's synthesized writes (same CPLD " +
-      "family as mapper 268, plus a recorded failure of this exact cart on " +
-      "this device class)",
+    "this firmware idles the M2 clock low between bus cycles, which this " +
+      "CPLD board family (same family as mapper 268) treats as console-off " +
+      "— register writes are reverted. An M2-idle-high firmware build " +
+      "(feature/m2-idle-high branch of INL-retro-progdump) enables this " +
+      "mapper",
   ],
+]);
+
+/**
+ * Mappers the INL cannot dump on ANY current firmware, for reasons unrelated
+ * to the M2 idle level — so the M2 probe never lifts them. Mapper 413 (BATMAP)
+ * needs the unreleased NESCPU_SPI413 memtype to read its serial sample flash
+ * (see the BATMAP note above).
+ */
+const ALWAYS_UNSUPPORTED_MAPPERS: ReadonlyMap<number, string> = new Map([
   [
     413,
     "its 8 MiB serial sample flash needs the NESCPU_SPI413 firmware memtype " +
@@ -101,3 +91,18 @@ export const UNSUPPORTED_MAPPERS = new Map<number, string>([
       "flash reads as 0xFF until then)",
   ],
 ]);
+
+/**
+ * The effective unsupported-mapper map for a session, given the probed
+ * firmware M2 idle level. The always-unsupported mappers apply regardless;
+ * the M2-idle-gated ones are added only on stock (M2-low) firmware and lifted
+ * by an M2-idle-high build.
+ */
+export function unsupportedMappersFor(
+  m2IdleHigh: boolean,
+): ReadonlyMap<number, string> {
+  return new Map([
+    ...ALWAYS_UNSUPPORTED_MAPPERS,
+    ...(m2IdleHigh ? [] : M2_IDLE_GATED_MAPPERS),
+  ]);
+}
