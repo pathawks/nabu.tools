@@ -30,6 +30,12 @@ describe("crc8 / buildFrame", () => {
     const frame = buildFrame(CMD.STARTED, HW_STARTED_PAYLOAD);
     expect(crc8(frame)).toBe(0);
   });
+
+  it("rejects a payload too large for the LE16 length field", () => {
+    expect(() =>
+      buildFrame(CMD.PRG_WRITE_REQUEST, new Uint8Array(0x10000)),
+    ).toThrow(/payload too large/);
+  });
 });
 
 describe("ClusterMProtocol.init", () => {
@@ -117,6 +123,13 @@ describe("ClusterMProtocol framing", () => {
     const protocol = new ClusterMProtocol(fake.transport);
     await expect(protocol.writeCpu(0x8000, [0x00])).rejects.toThrow(
       /replied ERROR_OVERFLOW, expected PRG_WRITE_DONE/,
+    );
+  });
+
+  it("rejects a request whose length can't fit the LE16 field", async () => {
+    const protocol = new ClusterMProtocol(new FakeClusterMDevice().transport);
+    await expect(protocol.readCpuBlock(0x8000, 0x10000)).rejects.toThrow(
+      /out of range/,
     );
   });
 });

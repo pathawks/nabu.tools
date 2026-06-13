@@ -155,6 +155,13 @@ export class ClusterMProtocol {
   }
 
   private static addrLen(addr: number, length: number): number[] {
+    // Both encode as LE16; an out-of-range value would wrap silently and
+    // make the host and device disagree about the request.
+    if (addr < 0 || addr > 0xffff || length < 0 || length > 0xffff) {
+      throw new Error(
+        `ClusterM request out of range: addr=${addr}, length=${length} (each must be 0..0xFFFF)`,
+      );
+    }
     return [addr & 0xff, (addr >> 8) & 0xff, length & 0xff, (length >> 8) & 0xff];
   }
 

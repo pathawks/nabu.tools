@@ -124,6 +124,13 @@ export function buildFrame(
   command: number,
   payload: Uint8Array | number[] = [],
 ): Uint8Array {
+  // The length field is LE16; a longer payload would wrap it while the
+  // frame still carries every byte, desyncing the device's byte stream.
+  if (payload.length > 0xffff) {
+    throw new Error(
+      `ClusterM frame payload too large: ${payload.length} bytes exceeds the 0xFFFF LE16 length field`,
+    );
+  }
   const frame = new Uint8Array(payload.length + 5);
   frame[0] = MAGIC;
   frame[1] = command;
