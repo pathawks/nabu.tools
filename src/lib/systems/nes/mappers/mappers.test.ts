@@ -191,6 +191,7 @@ describe("MMC3 (mapper 4)", () => {
     reg8000 = 0;
     ramCtrl = 0;
     ramCtrlAtRead = -1;
+    lastRamCtrlWrite = -1;
     readonly ram = makeImage(1024);
     async setup() {}
     async writeCpu(addr: number, value: number) {
@@ -200,6 +201,7 @@ describe("MMC3 (mapper 4)", () => {
         // continuously forced to $00 and writes to it are ignored.
         if ((value & 0x20) === 0) this.ramCtrl = 0;
       } else if (addr === 0xa001) {
+        this.lastRamCtrlWrite = value; // raw write, recorded even when gated
         if (this.reg8000 & 0x20) this.ramCtrl = value;
       }
     }
@@ -228,8 +230,11 @@ describe("MMC3 (mapper 4)", () => {
     const out = await mmc3.dumpSave!(bus, 8);
     expectSameBytes(out, bus.ram);
     expect(bus.ramCtrlAtRead).toBe(0xa0); // both halves readable, writes denied
-    expect(bus.ramCtrl).toBe(0); // protect cleared on the way out
-    expect(bus.reg8000 & 0x20).toBe(0); // master gate re-closed
+    expect(bus.reg8000 & 0x20).toBe(0); // master gate re-closed first
+    expect(bus.ramCtrl).toBe(0); // gated off — the $40 park is a no-op while gated
+    // ...but the final $A001 write is still the write-protected $40, so a
+    // false-positive on a real (ungated) MMC3 wouldn't be left writable.
+    expect(bus.lastRamCtrlWrite).toBe(0x40);
   });
 
   it("dumpSave returns the $6000 read when neither window answers", async () => {
@@ -273,6 +278,10 @@ describe("MMC3 (mapper 4)", () => {
     const out = await mmc3.dumpSave!(bus, 8);
     expect(out.length).toBe(8 * 1024);
     expect(out[0x1ff0]).toBe(0x42); // the real (sparse) save, intact
+    // Exit state matches init: off the bus AND write-protected (bit 6),
+    // never left at 0x00 — so a variant that ignores bit 7 can't be
+    // written for the rest of the session.
+    expect(bus.ramCtrl).toBe(0x40);
   });
 });
 

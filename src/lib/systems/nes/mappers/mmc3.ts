@@ -239,15 +239,21 @@ export const mmc3: NesMapper = {
         read: () => bus.readCpu(0x7000, 1024, onProgress),
         label: "MMC6 save RAM",
       });
-      await bus.writeCpu(PRG_RAM_CTRL, 0x00);
+      // Close the MMC6 master gate, then park PRG-RAM control to the same
+      // off-bus + write-protected state as init ($40). On a gated MMC6 the
+      // $A001 write is a no-op; on an MMC3 false-positive it keeps bit 6
+      // set, so a variant that ignores bit 7 still can't be written.
       await bus.writeCpu(BANK_SELECT, 0x00);
+      await bus.writeCpu(PRG_RAM_CTRL, 0x40);
       return mmc6;
     }
 
-    // Not an MMC6 — re-park the probe registers and return the $6000
-    // read; if it was uniform, the dump-job's warning tells the user.
-    await bus.writeCpu(PRG_RAM_CTRL, 0x00);
+    // Not an MMC6 — re-park the probe registers to init's safe state
+    // (gate closed, then PRG-RAM control off-bus + write-protected) and
+    // return the $6000 read; if it was uniform, the dump-job's warning
+    // tells the user.
     await bus.writeCpu(BANK_SELECT, 0x00);
+    await bus.writeCpu(PRG_RAM_CTRL, 0x40);
     return data;
   },
 };
