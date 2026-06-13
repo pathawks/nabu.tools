@@ -198,7 +198,14 @@ export class ClusterMProtocol {
     return payload;
   }
 
-  /** Write bytes to the CPU bus, one M2-timed write per byte, ascending. */
+  /**
+   * Write bytes to the CPU bus, one M2-timed write per byte, ascending.
+   * `data` is a mapper-register payload — a handful of bytes in practice.
+   * The frame's LE16 length bounds the whole payload to 0xFFFF, so with the
+   * 4-byte addr/len header `data` tops out at 0xFFFF - 4. Not worth a runtime
+   * check (no caller comes within kilobytes of that), and buildFrame throws
+   * loudly in the impossible overflow case.
+   */
   async writeCpu(addr: number, data: Uint8Array | number[]): Promise<void> {
     await this.sendCommand(CMD.PRG_WRITE_REQUEST, [
       ...ClusterMProtocol.addrLen(addr, data.length),
@@ -207,7 +214,10 @@ export class ClusterMProtocol {
     await this.expect(CMD.PRG_WRITE_DONE);
   }
 
-  /** Write bytes to the PPU bus (CHR-RAM), ascending addresses. */
+  /**
+   * Write bytes to the PPU bus (CHR-RAM), ascending addresses. Same
+   * register-sized `data` and per-frame payload bound as `writeCpu`.
+   */
   async writePpu(addr: number, data: Uint8Array | number[]): Promise<void> {
     await this.sendCommand(CMD.CHR_WRITE_REQUEST, [
       ...ClusterMProtocol.addrLen(addr, data.length),
