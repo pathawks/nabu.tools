@@ -25,6 +25,8 @@ import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
+import { bf909x } from "./bf909x";
+import { dxrom } from "./dxrom";
 import { quattro } from "./quattro";
 import { mapper268Mindkids } from "./coolboy";
 import { mapper470 } from "./inx007t";
@@ -42,6 +44,8 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   64: rambo1,
   66: gxrom,
   69: fme7,
+  71: bf909x,
+  206: dxrom,
   232: quattro,
   // Submapper 1 (Mindkids, outer registers at $5000) — the variant we've
   // hardware-verified. Submapper 0 (CoolBoy, registers at $6000) shares
