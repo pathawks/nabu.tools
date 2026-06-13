@@ -33,6 +33,19 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Open-source Game Boy / Game Boy Color / Game Boy Advance cartridge " +
       "reader by insideGadgets. Uses a CH340 USB-serial chip.",
   },
+  CLUSTERM: {
+    id: "CLUSTERM",
+    name: "ClusterM Famicom Dumper/Writer",
+    vendorId: 0x1209,
+    productId: 0xbaba,
+    transport: "serial",
+    systems: [{ id: "nes", name: "NES / Famicom" }],
+    homepage: "https://github.com/ClusterM/famicom-dumper-writer",
+    description:
+      "Open-source Famicom/NES cartridge dumper-writer by ClusterM. " +
+      "Simulates the console bus with a continuously-clocked M2 via a " +
+      "CPLD-synchronized memory controller.",
+  },
   INL_RETRO: {
     id: "INL_RETRO",
     name: "INL Retro Programmer",

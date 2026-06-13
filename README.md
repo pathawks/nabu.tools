@@ -20,6 +20,7 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 
 | Device | Connection | Systems |
 | --- | --- | --- |
+| [ClusterM Famicom Dumper/Writer](https://github.com/ClusterM/famicom-dumper-writer) | Web Serial | NES / Famicom |
 | [GBxCart RW](https://www.gbxcart.com/) v1.4 Pro | Web Serial | Game Boy, Game Boy Color, Game Boy Advance |
 | [INL Retro Programmer](https://www.infiniteneslives.com/inlretro.php) | WebUSB | NES / Famicom |
 | PowerSaves for Amiibo | WebHID | Amiibo (NTAG215) |
@@ -27,6 +28,11 @@ keeper of knowledge. Seemed fitting for a preservation tool.
 | Disney Infinity Base | WebHID | Disney Infinity Figures |
 | PS3 Memory Card Adaptor | WebUSB | PS1 Memory Card |
 | Neoflash SMS4 | WebUSB | DS cartridge saves |
+
+The Famicom Dumper/Writer is an open hardware design, so compatible
+third-party builds work too — including the one by
+[@hualazimo7](https://github.com/hualazimo7/retro-console-mod-collection),
+which this driver was developed and tested against.
 
 This is still early. More hardware and more systems are in the works.
 
@@ -48,7 +54,7 @@ Then unplug and replug the device. macOS and Windows don't need this.
 ## What It Does
 
 - **Dumps ROMs** from Game Boy, Game Boy Color, and Game Boy Advance cartridges
-- **Dumps NES / Famicom ROMs** (PRG + CHR) across a growing list of mappers via the INL Retro Programmer
+- **Dumps NES / Famicom ROMs** (PRG + CHR) across a growing list of mappers via the INL Retro Programmer or the ClusterM Famicom Dumper/Writer
 - **Backs up save data** (SRAM, Flash, EEPROM)
 - **Backs up DS cartridge saves** via the PowerSaves 3DS adapter
 - **Reads Amiibo** tags (and generic NTAG215 tags, best-effort)

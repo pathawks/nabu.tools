@@ -9,6 +9,7 @@ import type {
 
 export class SerialTransport implements Transport {
   readonly type: TransportType = "serial";
+  private readonly filters: SerialPortFilter[];
   private port: SerialPort | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -16,13 +17,17 @@ export class SerialTransport implements Transport {
   private pendingBytes: Uint8Array[] = [];
   private pendingTotal = 0;
 
+  constructor(filters: SerialPortFilter[]) {
+    this.filters = filters;
+  }
+
   get connected(): boolean {
     return this.port !== null;
   }
 
   async connect(options?: TransportConnectOptions): Promise<DeviceIdentity> {
     const port = await navigator.serial!.requestPort({
-      filters: [{ usbVendorId: 0x1a86, usbProductId: 0x7523 }],
+      filters: this.filters,
     });
     return this.openPort(port, options);
   }

@@ -7,6 +7,8 @@
 # TAG+="uaccess" grants the active desktop user an ACL via systemd-logind.
 # MODE="0660" keeps everyone else out as a floor.
 
+# CLUSTERM — ClusterM Famicom Dumper/Writer
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="baba", TAG+="uaccess", MODE="0660"
 # GBXCART — GBxCart RW
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", TAG+="uaccess", MODE="0660"
 # POWERSAVE — PowerSaves for Amiibo

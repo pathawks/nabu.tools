@@ -25,6 +25,9 @@ https://github.com/ClusterM/famicom-dumper-client
 The Mapper 268 (CoolBoy / Mindkids) GNROM-mode dump register sequence in
 src/lib/systems/nes/mappers/coolboy.ts was derived from the reference
 implementations in FamicomDumper/mappers/AA6023Sub0.cs and AA6023Sub1.cs.
+The ClusterM Famicom Dumper/Writer serial frame format, CRC-8, command
+set, and version handshake in src/lib/drivers/clusterm/ were ported from
+FamicomDumperConnection/SerialClient.cs and FamicomDumperLocal.cs.
 
 License: GNU General Public License v3.0
 

@@ -2,6 +2,12 @@ import { SerialTransport } from "@/lib/transport/serial-transport";
 import { HidTransport } from "@/lib/transport/hid-transport";
 import { UsbTransport } from "@/lib/transport/usb-transport";
 import { GBxCartDriver } from "@/lib/drivers/gbxcart/gbxcart-driver";
+import { DEVICE_FILTERS as GBXCART_FILTERS } from "@/lib/drivers/gbxcart/gbxcart-commands";
+import { ClusterMDriver } from "@/lib/drivers/clusterm/clusterm-driver";
+import {
+  DEVICE_FILTERS as CLUSTERM_FILTERS,
+  BAUD_RATE as CLUSTERM_BAUD,
+} from "@/lib/drivers/clusterm/clusterm-commands";
 import { PowerSaveDriver } from "@/lib/drivers/powersave/powersave-driver";
 import { DEVICE_FILTERS as POWERSAVE_FILTERS } from "@/lib/drivers/powersave/powersave-commands";
 import { PowerSave3DSDriver } from "@/lib/drivers/powersave-3ds/powersave-3ds-driver";
@@ -38,7 +44,7 @@ export interface ConnectionEntry {
 
 export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
   GBXCART: {
-    createTransport: () => new SerialTransport(),
+    createTransport: () => new SerialTransport(GBXCART_FILTERS),
     connect: (t, { authorized }) =>
       authorized
         ? (t as SerialTransport).connectWithPort(authorized as SerialPort, {
@@ -48,6 +54,19 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
     createDriver: (t) => new GBxCartDriver(t as SerialTransport),
     postInitLog: (info) =>
       `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, ${info.hardwareRevision})`,
+  },
+
+  CLUSTERM: {
+    createTransport: () => new SerialTransport(CLUSTERM_FILTERS),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as SerialTransport).connectWithPort(authorized as SerialPort, {
+            baudRate: CLUSTERM_BAUD,
+          })
+        : (t as SerialTransport).connect({ baudRate: CLUSTERM_BAUD }),
+    createDriver: (t) => new ClusterMDriver(t as SerialTransport),
+    postInitLog: (info) =>
+      `Connected: ${info.deviceName} (fw: ${info.firmwareVersion}, hw rev ${info.hardwareRevision})`,
   },
 
   INL_RETRO: {

@@ -1,5 +1,10 @@
 // GBxCart RW command opcodes (from FlashGBX LK_Device.py)
 
+/** WebSerial chooser filter — the CH340 USB-serial bridge on the GBxCart RW. */
+export const DEVICE_FILTERS: SerialPortFilter[] = [
+  { usbVendorId: 0x1a86, usbProductId: 0x7523 },
+];
+
 export const CMD = {
   // Original firmware
   OFW_PCB_VER: 0x68,
