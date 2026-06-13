@@ -75,6 +75,16 @@ describe("INLDevice flash-write guard (read-only dumper)", () => {
     }
   });
 
+  it("refuses a flash opcode disguised in the high bits of an out-of-range value", async () => {
+    // controlIn() transmits only opcode & 0xff, so a caller passing 0x107
+    // would send 0x07 (MMC3_PRG_FLASH_WR). The guard normalizes first, so the
+    // disguised flash write is still refused — never sent as 0x07.
+    const inl = new INLDevice();
+    await expect(inl.nes(0x100 | NES.MMC3_PRG_FLASH_WR, 0x8000, 0x40)).rejects.toThrow(
+      /flash-write opcode/i,
+    );
+  });
+
   it("does not interfere with the writes dumping needs", async () => {
     // Register/serial writes used to select banks must still pass through to
     // the transport (here they fail only because no device is connected).

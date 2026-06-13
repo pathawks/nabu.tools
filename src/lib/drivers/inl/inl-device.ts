@@ -117,6 +117,11 @@ export class INLDevice {
    * GET_BANK_TABLE (0x86) which has RL=4.
    */
   async nes(opcode: number, operand = 0, misc = 0): Promise<number> {
+    // controlIn() transmits only the low 8 bits (opcode & 0xff), so normalize
+    // up front: the flash-write guard and returnLength must both reflect the
+    // byte actually sent. Without this, nes(0x107) would slip 0x07 (a flash
+    // write) past the guard and mis-size its reply.
+    opcode &= 0xff;
     // Hardware safety: nabu is a read-only dumper and must never program a
     // cartridge's flash. Refuse every flash-PROGRAM opcode the firmware
     // exposes (see NES_FLASH_WRITE_OPCODES) before any transfer goes out, so
