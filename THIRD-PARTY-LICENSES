@@ -19,6 +19,22 @@ See LICENSE in this repository (same license applies to nabu as a whole).
 
 ================================================================================
 
+kazzo / anago
+https://github.com/sharkpp/unagi_kazzo
+https://github.com/zerkerX/anago
+
+The Kazzo NES/Famicom dumper USB protocol — vendor request numbers, wire
+format, and version handshake — in src/lib/drivers/kazzo/ was reimplemented
+from the documented protocol: unagi_kazzo's firmware/usbrequest.txt and
+anago's kazzo/kazzo_request.h, with anago's reader_kazzo.c as the reference
+host. These are interface facts; no firmware or host source was incorporated,
+so the GPL-2.0-only license of those projects does not attach to nabu.
+
+Kazzo firmware (naruko) and anago (zerkerX) are licensed GNU General Public
+License v2.0 only (GPL-2.0-only).
+
+================================================================================
+
 famicom-dumper-client
 https://github.com/ClusterM/famicom-dumper-client
 

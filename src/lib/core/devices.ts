@@ -57,6 +57,18 @@ export const DEVICES: Record<string, DeviceDef> = {
       "Open-source NES/Famicom cartridge dumper by Infinite NES Lives. " +
       "Protocol: gitlab.com/InfiniteNesLives/INL-retro-progdump",
   },
+  KAZZO: {
+    id: "KAZZO",
+    name: "Kazzo",
+    vendorId: 0x16c0,
+    productId: 0x05dc,
+    transport: "webusb",
+    systems: [{ id: "nes", name: "NES / Famicom" }],
+    description:
+      "Open-source NES/Famicom cartridge dumper by naruko (anago host). " +
+      "Shares the INL Retro's USB VID/PID; identified by its 'kazzo' " +
+      "product string.",
+  },
   POWERSAVE: {
     id: "POWERSAVE",
     name: "PowerSaves for Amiibo",
