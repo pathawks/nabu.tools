@@ -22,11 +22,11 @@ export const DICT = {
 // ─── PINPORT Dictionary ─────────────────────────────────────────────────────
 
 export const PINPORT = {
-  CTL_RD: 6,      // RL=4 — read a control pin
-  ADDR_SET: 17,   // set address bus value
+  CTL_RD: 6, // RL=4 — read a control pin
+  ADDR_SET: 17, // set address bus value
   // Control pin operand IDs for CTL_RD
-  CIA10: 11,       // CIRAM A10 (nametable mirroring)
-  CICE: 6,         // CIRAM /CE
+  CIA10: 11, // CIRAM A10 (nametable mirroring)
+  CICE: 6, // CIRAM /CE
 } as const;
 
 // ─── IO Dictionary ──────────────────────────────────────────────────────────
@@ -120,6 +120,10 @@ export const MEM = {
   NESCPU_PAGE: 0x22,
   NESPPU_PAGE: 0x23,
   NESCPU_4KB_TOGGLE: 0x32,
+  // Mapper 413 (BATMAP) serial-flash data port: firmware reads each
+  // byte as 8 dummy cart-ROM reads (SPI clocks) + one $C000 port read.
+  // The host opens the SPI frame first — see InlNesBus.readSpiDataPort.
+  NESCPU_SPI413: 0x33,
 } as const;
 
 // ─── Part numbers ───────────────────────────────────────────────────────────

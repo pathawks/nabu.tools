@@ -12,8 +12,11 @@ import { axrom } from "./axrom";
 import { colorDreams } from "./color-dreams";
 import { gxrom } from "./gxrom";
 import { fme7 } from "./fme7";
+import { bf909x } from "./bf909x";
+import { dxrom } from "./dxrom";
 import { quattro } from "./quattro";
 import { mapper268Mindkids, mapper268Coolboy } from "./coolboy";
+import { mapper413 } from "./batmap";
 import { mapper470 } from "./inx007t";
 
 /**
@@ -563,6 +566,76 @@ describe("UxROM (mapper 2)", () => {
   });
 });
 
+describe("BF909x (mapper 71)", () => {
+  // Models the BF9093/BF9097 boards and THROWS on the two write-hazards
+  // the dumper must never hit: $8000-$9FFF (BF9097's one-screen mirroring
+  // latch) and $E000-$FFFF (the CIC-stun latch present on all BF909x
+  // boards) — leaving $A000-$DFFF, of which only $C000-$DFFF is asserted
+  // as the bank-register decode the dumper may use. A write latches the
+  // exact value (74HC02-buffered, no bus conflict). `drops` simulates a
+  // flaky latch by ignoring the first N non-zero selects (leaving bank 0).
+  class Bf909xBus implements NesBus {
+    private prgBank = 0;
+    private readonly prg: Uint8Array;
+    private drops: number;
+    constructor(prg: Uint8Array, drops = 0) {
+      this.prg = prg;
+      this.drops = drops;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr >= 0x8000 && addr <= 0x9fff) {
+        throw new Error(
+          "$8000-$9FFF is BF9097's mirroring latch — the dumper must not write it",
+        );
+      }
+      if (addr >= 0xe000) {
+        throw new Error(
+          "$E000-$FFFF drives the CIC-stun latch — the dumper must not write it",
+        );
+      }
+      expect(addr).toBeGreaterThanOrEqual(0xc000); // the bank register decode
+      const bank = value & 0x0f;
+      if (bank !== 0 && this.drops > 0) {
+        this.drops--; // dropped latch: register keeps its old value
+        return;
+      }
+      this.prgBank = bank;
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      expect(length).toBe(0x4000); // only the switchable $8000-$BFFF window
+      const off = this.prgBank * 0x4000;
+      return this.prg.slice(off, off + length);
+    }
+  }
+
+  it("dumps all sixteen 16 KiB PRG banks via $C000 (BF9093, 256 KiB)", async () => {
+    const prg = makeImage(256 * 1024);
+    const out = await bf909x.dumpPrgRom(new Bf909xBus(prg), 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("recovers from a dropped bank-select via the bank-0 retry", async () => {
+    const prg = makeImage(128 * 1024);
+    // Drop the first real select: it reads back as bank 0, and
+    // readBankWithRetry re-issues it from the 0x00 home write.
+    const out = await bf909x.dumpPrgRom(new Bf909xBus(prg, 1), 128);
+    expectSameBytes(out, prg);
+  });
+
+  it("returns an empty CHR dump for CHR-RAM carts (size 0)", async () => {
+    const out = await bf909x.dumpChrRom({} as NesBus, 0);
+    expect(out.length).toBe(0);
+  });
+
+  it("throws if asked to dump CHR-ROM (BF909x is CHR-RAM)", async () => {
+    await expect(bf909x.dumpChrRom({} as NesBus, 8)).rejects.toThrow(
+      /CHR-RAM/,
+    );
+  });
+});
+
 describe("CxROM (mapper 3)", () => {
   // CxROM has a fixed PRG window (no banking) and switchable 8 KiB CHR
   // banks. The register lives in PRG space, so a write latches
@@ -744,7 +817,8 @@ describe("RAMBO-1 (mapper 64)", () => {
           "RAMBO-1 has no $A001 PRG-RAM register — the dumper must not write it",
         );
       }
-      if (addr === 0x8000) this.select = value & 0x0f; // 4-bit command
+      if (addr === 0x8000)
+        this.select = value & 0x0f; // 4-bit command
       else if (addr === 0x8001) this.r[this.select] = value;
       // $A000 (mirroring) is a no-op for content reads.
     }
@@ -791,6 +865,110 @@ describe("RAMBO-1 (mapper 64)", () => {
       readCpu: async () => new Uint8Array(0),
     };
     await expect(rambo1.dumpChrRom(noPpu, 64)).rejects.toThrow(/PPU-bus/);
+  });
+});
+
+describe("DxROM (mapper 206)", () => {
+  // DxROM dumps through the shared MMC3 core. This models the chip's
+  // narrower decode and THROWS on any write outside $8000-$9FFF: the real
+  // ASIC has no registers in $A000-$FFFF, so a stray MMC3-style mirroring
+  // or PRG-RAM write would be a bug (the reason mapper 206 has its own
+  // init). It also asserts every written value stays within the bits the
+  // chip decodes: select is 3 bits (MMC3's PRG-mode / CHR-inversion bits
+  // don't exist), data is 6 bits.
+  class DxromBus implements NesBus {
+    private select = 0;
+    private r = new Array<number>(8).fill(0);
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    constructor(prg: Uint8Array, chr: Uint8Array) {
+      this.prg = prg;
+      this.chr = chr;
+    }
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr < 0x8000 || addr > 0x9fff) {
+        throw new Error(
+          "DxROM has no registers outside $8000-$9FFF — the dumper must not write there",
+        );
+      }
+      if ((addr & 1) === 0) {
+        expect(value & 0xf8).toBe(0); // bits 3-7 don't exist on this chip
+        this.select = value & 0x07;
+      } else {
+        expect(value & 0xc0).toBe(0); // data is 6 bits wide
+        this.r[this.select] = value & 0x3f;
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000);
+      expect(length).toBe(8 * 1024);
+      const off = (this.r[6] & 0x0f) * 0x2000; // R6/R7 decode 4 bits
+      return this.prg.slice(off, off + length);
+    }
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      expect(length).toBe(4 * 1024);
+      // R0/R1 are 2 KiB banks counted in 1 KiB units with no bit 0 — only
+      // even positions exist, same as MMC3's low-bit-ignored behavior.
+      const b0 = (this.r[0] >> 1) * 0x800;
+      const b1 = (this.r[1] >> 1) * 0x800;
+      const out = new Uint8Array(length);
+      out.set(this.chr.slice(b0, b0 + 0x800), 0);
+      out.set(this.chr.slice(b1, b1 + 0x800), 0x800);
+      return out;
+    }
+  }
+
+  it("walks all PRG banks via R6, writing only $8000/$8001 (128 KiB)", async () => {
+    const prg = makeImage(128 * 1024); // 16 banks of 8 KiB — the PRG cap
+    const out = await dxrom.dumpPrgRom(
+      new DxromBus(prg, new Uint8Array(0)),
+      128,
+    );
+    expectSameBytes(out, prg);
+  });
+
+  it("dumps a 32 KiB unbanked board (submapper 1) as a flat $8000-$FFFF read", async () => {
+    // The common 32 KiB boards (the 3407/3417/3451 PCBs) wire CPU A13/A14
+    // straight to PRG-ROM, so R6/R7 have no effect. This model exposes the
+    // whole 32 KiB only through a single flat $8000 read and ignores any
+    // bank-register write — so an R6 walk (which reads 8 KiB windows) would
+    // fail the length assertion, and the flat-read path must be used.
+    const prg = makeImage(32 * 1024);
+    const bus: NesBus = {
+      setup: async () => {},
+      writeCpu: async (addr) => {
+        if (addr < 0x8000 || addr > 0x9fff) {
+          throw new Error("DxROM writes only $8000-$9FFF");
+        }
+      },
+      readCpu: async (addr, length) => {
+        expect(addr).toBe(0x8000);
+        expect(length).toBe(32 * 1024); // one flat window, not an 8 KiB walk
+        return prg.slice(0, length);
+      },
+    };
+    const out = await dxrom.dumpPrgRom(bus, 32);
+    expectSameBytes(out, prg);
+  });
+
+  it("walks CHR via R0/R1 up to the 64 KiB cap (data stays within 6 bits)", async () => {
+    const chr = makeImage(64 * 1024); // the last stride writes R1 = $3E
+    const out = await dxrom.dumpChrRom(
+      new DxromBus(new Uint8Array(0), chr),
+      64,
+    );
+    expectSameBytes(out, chr);
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const noPpu: NesBus = {
+      setup: async () => {},
+      writeCpu: async () => {},
+      readCpu: async () => new Uint8Array(0),
+    };
+    await expect(dxrom.dumpChrRom(noPpu, 64)).rejects.toThrow(/PPU-bus/);
   });
 });
 
@@ -1278,5 +1456,241 @@ describe("Mapper 470 (INX_007T_V01)", () => {
   it("returns an empty CHR dump (CHR-RAM board)", async () => {
     const out = await mapper470.dumpChrRom({} as NesBus, 0);
     expect(out.length).toBe(0);
+  });
+});
+
+describe("Mapper 413 (BATMAP)", () => {
+  const PRG = 256 * 1024;
+  const CHR = 256 * 1024;
+  const MISC = 8 * 1024 * 1024;
+
+  /**
+   * Faithful model of the board's CPLD-SPI bridge (hardware-validated
+   * protocol, 2026-06-13): $D000 bit 0 = /CS (an $01,$00 arm pulse
+   * begins frame capture); $C000 writes shift one command bit each; a
+   * 32-bit 0x03+addr24 frame opens the flash's streaming read; in data
+   * phase ($D000=$02) every cart-addressed READ clocks one SPI bit
+   * (halting at 8), and a $C000 read latches the byte, re-arms the
+   * counter, and — like the real CPLD — itself contributes a clock.
+   * The first port read after a frame returns pipeline junk (0xff).
+   * `clocksPerByte` lets a test model an under-clocking device. Any
+   * write to the $8000-$BFFF IRQ block throws: the dump must never
+   * touch it.
+   */
+  class SrrSpiBus implements NesBus {
+    private readonly regs = [0, 0, 0, 0];
+    private control = 0;
+    private csPulsed = false;
+    private capturing = false;
+    private frameBits: number[] = [];
+    private framed = false;
+    private flashBitPos = 0;
+    private bitsClocked = 0;
+    private latch = 0;
+    private armed = false;
+    readonly framesOpened: number[] = [];
+    private readonly clocksPerByte: number;
+    private readonly prg: Uint8Array;
+    private readonly chr: Uint8Array;
+    private readonly flash: Uint8Array;
+    constructor(
+      prg: Uint8Array,
+      chr: Uint8Array,
+      flash: Uint8Array,
+      opts: { clocksPerByte?: number } = {},
+    ) {
+      this.prg = prg;
+      this.chr = chr;
+      this.flash = flash;
+      this.clocksPerByte = opts.clocksPerByte ?? 8;
+    }
+    async setup() {}
+
+    async writeCpu(addr: number, value: number) {
+      const page = addr & 0xf000;
+      if (page === 0xe000 || page === 0xf000) {
+        this.regs[value >> 6] = value & 0x3f;
+      } else if (page === 0xd000) {
+        if (value & 0x01) {
+          this.csPulsed = true;
+        } else if (this.csPulsed && !(value & 0x02)) {
+          // $01 then $00: begin a fresh frame capture
+          this.capturing = true;
+          this.frameBits = [];
+          this.framed = false;
+          this.armed = false;
+          this.csPulsed = false;
+        }
+        this.control = value;
+      } else if (page === 0xc000) {
+        if (this.capturing) {
+          this.frameBits.push(value >> 7);
+          if (this.frameBits.length === 32) {
+            const word = this.frameBits.reduce((acc, b) => (acc << 1) | b, 0);
+            const cmd = (word >>> 24) & 0xff;
+            expect(cmd).toBe(0x03); // only the flash READ command is valid
+            const flashAddr = word & 0xffffff;
+            this.flashBitPos = flashAddr * 8;
+            this.framed = true;
+            this.capturing = false;
+            this.framesOpened.push(flashAddr);
+          }
+        }
+      } else {
+        // $8000-$BFFF is the scanline-IRQ block (or below: not a register).
+        throw new Error(`unexpected write $${addr.toString(16)}`);
+      }
+    }
+
+    /** One SPI clock, fired by any cart-addressed read in data phase. */
+    private clock() {
+      if (!(this.control & 0x02) || !this.framed || !this.armed) return;
+      if (this.bitsClocked >= this.clocksPerByte || this.bitsClocked >= 8)
+        return; // the CPLD's counter halts at a byte
+      const bit =
+        (this.flash[this.flashBitPos >> 3] >> (7 - (this.flashBitPos & 7))) & 1;
+      this.latch = ((this.latch << 1) | bit) & 0xff;
+      this.flashBitPos++;
+      this.bitsClocked++;
+    }
+
+    /**
+     * A port read returns the CURRENT shift-register window — like the
+     * real CPLD, not a completeness-gated value. A well-clocked cadence
+     * sees exactly the assembled byte; an under-clocked one sees stale
+     * bits sheared into each byte (non-uniform garbage), which is what
+     * the pre-flight overlap probe catches on hardware.
+     */
+    private portRead(): number {
+      this.clock(); // the port read itself contributes a clock
+      const out = this.armed ? this.latch : 0xff; // pre-arm read: MISO idle
+      this.armed = true;
+      this.bitsClocked = 0;
+      return out;
+    }
+
+    // Synchronous core shared by the async bus method and the paced
+    // page-read simulation — an 8 MiB dump is ~75 million bus cycles,
+    // which must not each be an awaited promise (worker OOM/timeout on
+    // modest hardware).
+    private readByteSync(addr: number): number {
+      if (addr === 0xc000 && this.control & 0x02) {
+        return this.portRead();
+      }
+      if (addr >= 0x8000) {
+        this.clock(); // cart-ROM read = one SPI clock
+        return 0xa5; // arbitrary ROM byte; dummies ignore it
+      }
+      return 0x48; // open bus below $4800-style echo
+    }
+
+    async readCpuByte(addr: number) {
+      return this.readByteSync(addr);
+    }
+
+    /** Simulates the firmware's NESCPU_SPI413 paced page read. */
+    async readSpiDataPort(length: number) {
+      const out = new Uint8Array(length);
+      for (let i = 0; i < length; i++) {
+        for (let j = 0; j < 8; j++) this.readByteSync(0xd000);
+        out[i] = this.readByteSync(0xc000);
+      }
+      return out;
+    }
+
+    async readCpu(addr: number, length: number) {
+      expect(addr).toBe(0x8000); // reg1's PRG window — the only block read
+      expect(length).toBe(0x2000);
+      const off = this.regs[1] * 0x2000;
+      return this.prg.slice(off, off + length);
+    }
+
+    async readPpu(addr: number, length: number) {
+      expect(addr).toBe(0x0000);
+      expect(length).toBe(0x1000);
+      const off = this.regs[3] * 0x1000;
+      return this.chr.slice(off, off + length);
+    }
+  }
+
+  function makeBus(opts?: { clocksPerByte?: number; flash?: Uint8Array }) {
+    return new SrrSpiBus(
+      makeImage(PRG),
+      makeImage(CHR, 1),
+      opts?.flash ?? makeImage(MISC, 2),
+      opts,
+    );
+  }
+
+  it("dumps PRG byte-exact through the reg1 window walk", async () => {
+    const prg = makeImage(PRG);
+    const bus = new SrrSpiBus(prg, new Uint8Array(0), new Uint8Array(0));
+    const out = await mapper413.dumpPrgRom(bus, 256);
+    expectSameBytes(out, prg);
+  });
+
+  it("dumps CHR byte-exact through the reg3 window walk", async () => {
+    const chr = makeImage(CHR, 1);
+    const bus = new SrrSpiBus(new Uint8Array(0), chr, new Uint8Array(0));
+    const out = await mapper413.dumpChrRom(bus, 256);
+    expectSameBytes(out, chr);
+  });
+
+  it("dumps the 8 MiB serial flash byte-exact through the SPI frame protocol", async () => {
+    const flash = makeImage(MISC, 2);
+    const bus = makeBus({ flash });
+    const out = await mapper413.dumpMiscRom!(bus, 8192);
+    expectSameBytes(out, flash);
+  });
+
+  it("re-opens the frame per 1 MiB block, after a 3-frame probe", async () => {
+    const bus = makeBus();
+    await mapper413.dumpMiscRom!(bus, 8192);
+    // probe: 0, 0, 4 — then one frame per 1 MiB block
+    expect(bus.framesOpened).toEqual([
+      0,
+      0,
+      4,
+      ...Array.from({ length: 8 }, (_, i) => i * 1024 * 1024),
+    ]);
+  });
+
+  it("probe rejects an under-clocking device within three probe frames", async () => {
+    // 7 clocks per byte (6 dummies' worth + the port read) shears one
+    // stale bit into every byte. The shear isn't reproducible across
+    // re-opened frames (the shift register carries over), so either
+    // pre-flight check — determinism or shifted-overlap — fires; what
+    // matters is rejecting before the multi-minute full dump.
+    const bus = makeBus({ clocksPerByte: 7 });
+    await expect(mapper413.dumpMiscRom!(bus, 8192)).rejects.toThrow(
+      /probe failed/,
+    );
+    expect(bus.framesOpened.length).toBeLessThanOrEqual(3);
+  });
+
+  it("throws a clear capability error when the bus lacks the paced SPI read", async () => {
+    const bus = makeBus();
+    (bus as { readSpiDataPort?: unknown }).readSpiDataPort = undefined;
+    await expect(mapper413.dumpMiscRom!(bus, 8192)).rejects.toThrow(
+      /paced SPI read path/,
+    );
+  });
+
+  it("rejects any geometry but the board's 256/256/8192 KiB", async () => {
+    await expect(mapper413.dumpPrgRom(makeBus(), 128)).rejects.toThrow(
+      /256 KiB/,
+    );
+    await expect(mapper413.dumpChrRom(makeBus(), 128)).rejects.toThrow(
+      /256 KiB/,
+    );
+    await expect(mapper413.dumpMiscRom!(makeBus(), 4096)).rejects.toThrow(
+      /8192 KiB/,
+    );
+  });
+
+  it("throws a clear error when the bus has no PPU read", async () => {
+    const bus = makeBus();
+    (bus as { readPpu?: unknown }).readPpu = undefined;
+    await expect(mapper413.dumpChrRom(bus, 256)).rejects.toThrow(/PPU-bus/);
   });
 });

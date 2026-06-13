@@ -87,6 +87,30 @@ export interface NesBus {
   writeSerialRegister?(addr: number, value: number): Promise<void>;
 
   /**
+   * Read a single byte from CPU-bus address `addr`. Optional — drivers
+   * whose read primitives have block-size minimums (e.g. the INL's
+   * 1 KiB-granular dump engine) supply this as the one-byte escape
+   * hatch. Mapper 413 requires it for the SPI frame's arming read.
+   */
+  readCpuByte?(addr: number): Promise<number>;
+
+  /**
+   * Stream `length` bytes from mapper 413's serial-flash data port,
+   * paced by the device: one byte = eight cart-ROM read cycles (the
+   * CPLD's SPI clocks) followed by a $C000 port read. The mapper opens
+   * the SPI frame (CS pulse, command bits, data mode, arming read) via
+   * `writeCpu`/`readCpuByte` before calling; the device only supplies
+   * the paced transport. Optional — devices without a paced read path
+   * cannot dump this board's miscellaneous ROM at all (a generic
+   * `readCpu` cannot express the per-byte clocking), so the mapper
+   * throws a clear capability error when it is absent.
+   */
+  readSpiDataPort?(
+    length: number,
+    onProgress?: BusProgressCb,
+  ): Promise<Uint8Array>;
+
+  /**
    * Write `latchValue` to the CPU-bus register at `latchAddr` and read
    * `length` bytes from `addr`, as ONE fused device operation with no bus
    * idle between the write and the read. Optional — a driver supplies this

@@ -12,10 +12,12 @@
  * without a generic PPU-bus primitive provides a driver-specific
  * `dumpChrRom` override instead.
  *
- * The PRG/CHR dump core is shared with RAMBO-1 (mapper 64), which
- * is an MMC3 superset that, in the mode we configure for dumping, banks
- * identically — see `./rambo1`. Only the register init differs (RAMBO-1
- * has no PRG-RAM), so the variant supplies its own `init`.
+ * The PRG/CHR dump core is shared with RAMBO-1 (mapper 64), an MMC3
+ * superset that, in the mode we configure for dumping, banks identically —
+ * see `./rambo1` — and with DxROM (mapper 206), the MMC3 ancestor
+ * whose only registers are this same $8000/$8001 pair — see `./dxrom`.
+ * Only the register init differs between the three, so each variant
+ * supplies its own `init`.
  */
 
 import type { NesBus } from "../bus";
@@ -39,13 +41,13 @@ export interface Mmc3StyleVariant {
 }
 
 /**
- * Program R0/R1 (CHR) and R6/R7 (PRG) plus mirroring to a known state —
- * the bank setup common to MMC3 and RAMBO-1. CHR mode 0, PRG mode 0
- * ($8000 bit 7 = 0, bit 6 = 0).
+ * Program R0/R1 (CHR) and R6/R7 (PRG) to a known state through the
+ * $8000/$8001 select/data pair alone. CHR mode 0, PRG mode 0 ($8000
+ * bit 7 = 0, bit 6 = 0). This is the whole init for DxROM (mapper
+ * 206, MMC3's ancestor), which has no registers outside $8000/$8001 —
+ * see `./dxrom`.
  */
-export async function setupBanks(bus: NesBus): Promise<void> {
-  // Vertical mirroring — irrelevant for dumping content but a deterministic start
-  await bus.writeCpu(MIRRORING, 0x00);
+export async function programBanks(bus: NesBus): Promise<void> {
   // R0 -> 2 KiB CHR at PPU $0000
   await bus.writeCpu(BANK_SELECT, 0x00);
   await bus.writeCpu(BANK_DATA, 0x00);
@@ -58,6 +60,16 @@ export async function setupBanks(bus: NesBus): Promise<void> {
   // R7 -> 8 KiB PRG at $A000 = bank 1
   await bus.writeCpu(BANK_SELECT, 0x07);
   await bus.writeCpu(BANK_DATA, 0x01);
+}
+
+/**
+ * `programBanks` plus a deterministic mirroring write — the bank setup
+ * common to MMC3 and RAMBO-1, which both have a $A000 mirroring register.
+ */
+export async function setupBanks(bus: NesBus): Promise<void> {
+  // Vertical mirroring — irrelevant for dumping content but a deterministic start
+  await bus.writeCpu(MIRRORING, 0x00);
+  await programBanks(bus);
 }
 
 /** Set up MMC3 registers to a known state before dumping. */

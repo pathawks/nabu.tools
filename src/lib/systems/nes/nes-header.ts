@@ -38,6 +38,11 @@ export interface Nes2HeaderInputs {
    * (e.g. PAL-only carts).
    */
   tvSystem?: NesTvSystem;
+  /**
+   * Number of miscellaneous ROMs appended after CHR (byte 14, bits 0-1).
+   * Default 0; mapper 413's sample flash is the one case we emit.
+   */
+  miscRoms?: number;
 }
 
 /** Convert a power-of-two size in bytes to NES 2.0's shift count. */
@@ -74,8 +79,8 @@ const TV_SYSTEM_BITS: Record<NesTvSystem, number> = {
  *   11    CHR-RAM (low nibble) / CHR-NVRAM (high nibble) shift counts
  *   12    TV system (bits 0-1)
  *   13    Vs./PlayChoice = 0
- *   14    Misc ROM count = 0
- *   15    Default expansion device = 1 (Standard NES Controller)
+ *   14    Misc ROM count (bits 0-1)
+ *   15    Default expansion device = 0 (unspecified)
  */
 export function buildNes2Header(p: Nes2HeaderInputs): Uint8Array {
   const h = new Uint8Array(16);
@@ -135,8 +140,9 @@ export function buildNes2Header(p: Nes2HeaderInputs): Uint8Array {
   // Byte 13: Vs. / PlayChoice = 0 (not relevant for our scope).
   h[13] = 0;
 
-  // Byte 14: Miscellaneous ROMs = 0 (none).
-  h[14] = 0;
+  // Byte 14: number of miscellaneous ROMs appended after CHR. Only
+  // bits 0-1 are defined.
+  h[14] = (p.miscRoms ?? 0) & 0x03;
 
   // Byte 15: Default expansion device. 0 = unspecified — we don't
   // know what controller(s) the cart expects.

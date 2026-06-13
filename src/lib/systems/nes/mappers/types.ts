@@ -29,6 +29,18 @@ export interface NesMapper {
     onProgress?: ProgressCb,
   ): Promise<Uint8Array>;
 
+  /**
+   * Dump the NES 2.0 miscellaneous-ROM area — the file section appended
+   * after CHR (header byte 14 counts it). Only boards that carry one
+   * declare this (mapper 413's 8 MiB sample flash); `sizeKB` comes from
+   * the mapper def's fixed `miscRomKB`.
+   */
+  dumpMiscRom?(
+    bus: NesBus,
+    sizeKB: number,
+    onProgress?: ProgressCb,
+  ): Promise<Uint8Array>;
+
   /** Engage SRAM access before a save-RAM dump (where required by the mapper). */
   enableSram?(bus: NesBus): Promise<void>;
 
