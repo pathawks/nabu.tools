@@ -27,6 +27,7 @@ export class KazzoDevice {
   private device: USBDevice | null = null;
   private onDisconnect?: () => void;
   private _firmwareVersion: string | null = null;
+  private _firmwareVersionBytes: Uint8Array | null = null;
 
   get connected(): boolean {
     return this.device?.opened ?? false;
@@ -39,6 +40,16 @@ export class KazzoDevice {
   /** Firmware version string from FIRMWARE_VERSION, or "unknown" until fetched. */
   get firmwareVersion(): string {
     return this._firmwareVersion ?? "unknown";
+  }
+
+  /**
+   * Raw FIRMWARE_VERSION response bytes, or null until fetched. The driver
+   * fingerprints these to classify the firmware era (see ./firmware-m2):
+   * the INL-distributed clipped build has the version section erased (all
+   * 0xFF, no terminator), which the decoded string can't represent.
+   */
+  get firmwareVersionBytes(): Uint8Array | null {
+    return this._firmwareVersionBytes;
   }
 
   /** Prompt user to select device. */
@@ -78,6 +89,7 @@ export class KazzoDevice {
     }
     this.device = null;
     this._firmwareVersion = null;
+    this._firmwareVersionBytes = null;
   }
 
   onDisconnected(handler: () => void): void {
@@ -299,6 +311,7 @@ export class KazzoDevice {
       0,
       VERSION_STRING_SIZE,
     );
+    this._firmwareVersionBytes = bytes;
     const nul = bytes.indexOf(0);
     const end = nul === -1 ? bytes.length : nul;
     this._firmwareVersion = new TextDecoder("ascii").decode(

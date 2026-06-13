@@ -3,14 +3,15 @@ import { KazzoDriver } from "./kazzo-driver";
 import type { KazzoTransport } from "./kazzo-transport";
 import type { KazzoDevice } from "./kazzo-device";
 import type { ReadConfig } from "@/lib/types";
-import { VRAM_VERTICAL } from "./kazzo-opcodes";
+import { VRAM_VERTICAL, VERSION_STRING_SIZE } from "./kazzo-opcodes";
+import { M2_IDLE_GATED_MAPPERS } from "./unsupported-mappers";
 
 /**
  * Driver-level coverage exercised entirely through a fake `KazzoDevice` — no
  * hardware. It proves the dump paths drive the shared mapper catalog over the
  * bus correctly: NROM reads flat, an MMC3 cart is banked + reassembled, the
- * unsupported mappers are pre-flight-rejected before any cart traffic, and
- * detect/init/save take their expected shapes.
+ * M2-idle-gated mappers are classified per firmware and pre-flight-rejected
+ * before any cart traffic, and detect/init/save take their expected shapes.
  */
 
 interface Call {
@@ -26,19 +27,38 @@ interface FakeOptions {
   /** Bytes a ppuRead at (addr,len) yields. Default: zero-fill. */
   ppuRead?: (addr: number, len: number) => Uint8Array;
   vram?: number;
-  firmware?: string;
+  /**
+   * FIRMWARE_VERSION response: a string (NUL-padded to 32 bytes), raw bytes
+   * (e.g. the clipped build's all-0xFF section), or "transfer-error" to make
+   * the fetch itself throw.
+   */
+  firmware?: string | Uint8Array | "transfer-error";
+}
+
+/** A NUL-terminated, zero-padded 32-byte version section. */
+function versionBytes(s: string): Uint8Array {
+  const out = new Uint8Array(VERSION_STRING_SIZE);
+  out.set(new TextEncoder().encode(s));
+  return out;
 }
 
 /** A fake KazzoDevice that records every call the bus/driver makes. */
 function fakeKazzo(opts: FakeOptions = {}) {
   const calls: Call[] = [];
   const firmware = opts.firmware ?? "kazzo 1.2";
+  let fwBytes: Uint8Array | null = null;
   const device = {
     productName: "kazzo",
-    firmwareVersion: firmware,
+    get firmwareVersionBytes() {
+      return fwBytes;
+    },
     async fetchFirmwareVersion() {
       calls.push({ m: "firmware" });
-      return firmware;
+      if (firmware === "transfer-error") {
+        throw new Error("Kazzo control IN failed");
+      }
+      fwBytes = typeof firmware === "string" ? versionBytes(firmware) : firmware;
+      return "";
     },
     async phi2Init() {
       calls.push({ m: "phi2Init" });
@@ -93,20 +113,148 @@ describe("KazzoDriver capabilities", () => {
     expect(cap[0].systemId).toBe("nes");
     expect(cap[0].operations).toContain("dump_rom");
     expect(cap[0].autoDetect).toBe(true);
-    // 268/470 are TEMPORARILY ENABLED for hardware testing (see
-    // ./unsupported-mappers) — nothing greyed out for now.
-    expect(cap[0].unsupportedMappers).toEqual([]);
+    // Pre-probe default: the M2-idle-gated CPLD mappers are greyed out
+    // until initialize() classifies the firmware (fail-safe).
+    expect(cap[0].unsupportedMappers).toEqual([...M2_IDLE_GATED_MAPPERS.keys()]);
   });
 });
 
 describe("KazzoDriver.initialize", () => {
   it("fetches the firmware version and reports device info", async () => {
-    const { device, calls } = fakeKazzo({ firmware: "kazzo 1.5" });
+    const { device, calls } = fakeKazzo({ firmware: "kazzo16 0.1.3" });
     const info = await makeDriver(device).initialize();
-    expect(info.firmwareVersion).toBe("kazzo 1.5");
+    expect(info.firmwareVersion).toBe("kazzo16 0.1.3");
     expect(info.deviceName).toBe("kazzo");
     expect(info.capabilities[0].systemId).toBe("nes");
     expect(calls.some((c) => c.m === "firmware")).toBe(true);
+  });
+});
+
+/**
+ * The M2-idle firmware gate. initialize() classifies the connected build
+ * from its FIRMWARE_VERSION fingerprint (see ./firmware-m2): pre-flip
+ * "kazzo16 0.1.0"–"0.1.2" strings and the self-identifying "0.1.3+m2"
+ * fork idle M2 high (all-0xFF — a blank version section — gates: capable
+ * in practice but not an identity)
+ * → the SMD172-family CPLD mappers are enabled; anything else (including a
+ * failed read, and before any probe at all) leaves them gated.
+ */
+describe("KazzoDriver M2-idle firmware gate", () => {
+  const gatedIds = [...M2_IDLE_GATED_MAPPERS.keys()];
+  const clipped = () => new Uint8Array(VERSION_STRING_SIZE).fill(0xff);
+
+  it("enables the CPLD mappers on the m2-idle-high fork build and dumps mapper 268", async () => {
+    const { device } = fakeKazzo({ firmware: "kazzo16 0.1.3+m2 / Jun 10 2026" });
+    const driver = makeDriver(device);
+
+    await driver.initialize();
+
+    expect(driver.m2IdleHigh).toBe(true);
+    expect(driver.capabilities[0].unsupportedMappers).toEqual([]);
+
+    // A formerly-gated mapper now dumps end to end (one 16 KiB outer bank).
+    const data = await driver.readROM(
+      romConfig({ mapper: 268, prgSizeBytes: 16384, chrSizeBytes: 0 }),
+    );
+    expect(data).toHaveLength(16384);
+  });
+
+  it("gates the CPLD mappers on the clipped (all-0xFF) build — blank version is no identity", async () => {
+    const { device, calls } = fakeKazzo({ firmware: clipped() });
+    const driver = makeDriver(device);
+    await driver.initialize();
+    expect(driver.m2IdleHigh).toBe(false);
+    calls.length = 0;
+    await expect(
+      driver.readROM(
+        romConfig({ mapper: 268, prgSizeBytes: 16384, chrSizeBytes: 0 }),
+      ),
+    ).rejects.toThrow(/Kazzo firmware/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("enables the CPLD mappers on a pre-flip version string", async () => {
+    const { device } = fakeKazzo({ firmware: "kazzo16 0.1.2" });
+    const driver = makeDriver(device);
+
+    await driver.initialize();
+
+    expect(driver.m2IdleHigh).toBe(true);
+    expect(driver.capabilities[0].unsupportedMappers).toEqual([]);
+  });
+
+  it.each([268, 470])(
+    "pre-flight-rejects mapper %i on post-flip firmware without touching the cart",
+    async (mapper) => {
+      // The driver must reject before any cart traffic rather than produce
+      // a boot-bank-mirrored garbage dump.
+      const { device, calls } = fakeKazzo({ firmware: "kazzo16 0.1.3" });
+      const driver = makeDriver(device);
+      await driver.initialize();
+      calls.length = 0;
+
+      await expect(
+        driver.readROM(
+          romConfig({ mapper, prgSizeBytes: 16384, chrSizeBytes: 0 }),
+        ),
+      ).rejects.toThrow(/Kazzo firmware/);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  it("treats a version-read failure as gated (fail-safe)", async () => {
+    const { device } = fakeKazzo({ firmware: "transfer-error" });
+    const driver = makeDriver(device);
+
+    await driver.initialize(); // must not throw
+
+    expect(driver.m2IdleHigh).toBe(false);
+    expect(driver.capabilities[0].unsupportedMappers).toEqual(gatedIds);
+  });
+
+  it("gates the mappers before initialize() has classified (fail-safe default)", async () => {
+    const { device, calls } = fakeKazzo();
+    const driver = makeDriver(device);
+
+    expect(driver.m2IdleHigh).toBe(false);
+    expect(driver.capabilities[0].unsupportedMappers).toEqual(gatedIds);
+    await expect(
+      driver.readROM(
+        romConfig({ mapper: 268, prgSizeBytes: 16384, chrSizeBytes: 0 }),
+      ),
+    ).rejects.toThrow(/Kazzo firmware/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("logs exactly one firmware-classification line", async () => {
+    const { device } = fakeKazzo({ firmware: "kazzo16 0.1.3+m2 / Jun 10 2026" });
+    const driver = makeDriver(device);
+    const logs: string[] = [];
+    driver.on("onLog", (message) => logs.push(message));
+
+    await driver.initialize();
+
+    const fwLines = logs.filter((l) => l.includes("M2 idles"));
+    expect(fwLines).toHaveLength(1);
+    expect(fwLines[0]).toBe(
+      "Firmware kazzo16 0.1.3+m2 / Jun 10 2026: " +
+        "M2 idles high — CPLD mappers (268/470) enabled",
+    );
+  });
+
+  it("the classification line names the gated mappers as unavailable on a post-flip build", async () => {
+    const { device } = fakeKazzo({ firmware: "kazzo16 0.1.3" });
+    const driver = makeDriver(device);
+    const logs: string[] = [];
+    driver.on("onLog", (message) => logs.push(message));
+
+    await driver.initialize();
+
+    const fwLines = logs.filter((l) => l.includes("M2 idles"));
+    expect(fwLines).toHaveLength(1);
+    expect(fwLines[0]).toBe(
+      "Firmware kazzo16 0.1.3: M2 idles low — CPLD mappers (268/470) unavailable",
+    );
   });
 });
 
@@ -236,9 +384,9 @@ describe("KazzoDriver.readROM — MMC3 (banked)", () => {
 });
 
 describe("KazzoDriver.readROM — unsupported mappers", () => {
-  // 268 (CoolBoy) and 470 are TEMPORARILY ENABLED for hardware testing (see
-  // ./unsupported-mappers), so they're no longer pre-flight-rejected.
-  // resolveMapper still rejects ids that aren't in the shared catalog at all:
+  // The M2-idle-gated mappers (268/470) are covered by the firmware-gate
+  // describe above. resolveMapper additionally rejects ids that aren't in
+  // the shared catalog at all:
   it("rejects a mapper that isn't in the catalog at all", async () => {
     const { device } = fakeKazzo();
     await expect(

@@ -17,7 +17,8 @@
  *  - `readChrBankLatched`: bus-conflict CHR mappers fall back to
  *    `writeCpu` + `readPpu`, which Kazzo expresses directly.
  *  - `readCpuBankLatched`: the fused latch+read primitive (mapper 470) the
- *    firmware doesn't have; 470 is pre-flight-rejected anyway.
+ *    firmware doesn't have; the 470 walk falls back to re-latching with
+ *    `writeCpu` before each sub-read.
  */
 
 import type { NesBus, BusProgressCb } from "@/lib/systems/nes/bus";

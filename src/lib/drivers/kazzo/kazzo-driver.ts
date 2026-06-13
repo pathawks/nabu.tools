@@ -7,9 +7,10 @@
  * read/write requests. Runs on kazzo hardware or on an AVR-based INL Retro
  * board (v1.x, pre-2018) reflashed with the Kazzo firmware.
  *
- * NOT yet hardware-validated: the device/protocol layer is reimplemented
- * from the documented Kazzo protocol and the dump path is exercised only by
- * fakes; real-cart testing is pending.
+ * The device/protocol layer is reimplemented from the documented Kazzo
+ * protocol. Hardware-validated over WebUSB on the INL-distributed clipped
+ * build of the 2010-01 firmware (NROM, MMC3, and — that build idles M2
+ * high — the CPLD mappers 268 and 470, byte-perfect against references).
  */
 
 import type {
@@ -27,7 +28,16 @@ import type { KazzoDevice } from "./kazzo-device";
 import type { KazzoTransport } from "./kazzo-transport";
 import { KazzoNesBus } from "./kazzo-nes-bus";
 import { detectKazzoMirroring } from "./detect-mirroring";
-import { UNSUPPORTED_MAPPERS } from "./unsupported-mappers";
+// Catalog mappers gated on the firmware's M2 idle level (the SMD172-family
+// CPLD boards need M2 to idle high; post-2010-01-24 Kazzo builds idle it
+// low). The gate is classified per connection from the firmware version
+// fingerprint in initialize(); when closed, the affected mappers are greyed
+// out in the config UI and pre-flight-rejected in readROM/readSave.
+import {
+  M2_IDLE_GATED_MAPPERS,
+  unsupportedMappersFor,
+} from "./unsupported-mappers";
+import { classifyKazzoFirmware } from "./firmware-m2";
 import { getNesMapper } from "@/lib/systems/nes/mappers";
 
 /** $6000-$7FFF — the battery-backed PRG-RAM (SRAM) window on the CPU bus. */
@@ -41,11 +51,25 @@ export class KazzoDriver implements DeviceDriver {
       systemId: "nes",
       operations: ["dump_rom"],
       autoDetect: true,
-      // Greys these out in the config UI; readROM pre-flight-rejects them
-      // too. See ./unsupported-mappers for the (family-inference) reasoning.
-      unsupportedMappers: [...UNSUPPORTED_MAPPERS.keys()],
+      // Greys these mappers out in the config UI; readROM pre-flight-
+      // rejects them too. Pre-probe default assumes an M2-idle-low build;
+      // initialize() re-derives this from the firmware classification.
+      unsupportedMappers: [...unsupportedMappersFor(false).keys()],
     },
   ];
+
+  /**
+   * Whether the connected firmware idles M2 high between bus operations —
+   * the feature the SMD172-family CPLD mappers require. Classified once per
+   * connection in initialize() from the FIRMWARE_VERSION fingerprint (see
+   * ./firmware-m2); false (gated) until then.
+   */
+  private _m2IdleHigh = false;
+  get m2IdleHigh(): boolean {
+    return this._m2IdleHigh;
+  }
+  /** Effective unsupported-mapper map for this session (see ./unsupported-mappers). */
+  private unsupportedMappers = unsupportedMappersFor(false);
 
   private events: Partial<DeviceDriverEvents> = {};
   /**
@@ -78,11 +102,37 @@ export class KazzoDriver implements DeviceDriver {
 
   async initialize(): Promise<DeviceInfo> {
     this.log("Initializing Kazzo...");
-    await this.kazzoDevice.fetchFirmwareVersion();
+
+    // Classify the firmware's M2 idle level from its version fingerprint.
+    // FIRMWARE_VERSION is a benign flash read present in every firmware
+    // era; a failed read classifies as idle-low, keeping the gate closed.
+    let versionBytes: Uint8Array | null = null;
+    try {
+      await this.kazzoDevice.fetchFirmwareVersion();
+      versionBytes = this.kazzoDevice.firmwareVersionBytes;
+    } catch {
+      versionBytes = null;
+    }
+    const firmware = classifyKazzoFirmware(versionBytes);
+    this._m2IdleHigh = firmware.m2IdleHigh;
+    this.unsupportedMappers = unsupportedMappersFor(firmware.m2IdleHigh);
+    const nesCapability = this.capabilities.find((c) => c.systemId === "nes");
+    if (nesCapability) {
+      nesCapability.unsupportedMappers = [...this.unsupportedMappers.keys()];
+    }
+    const gatedIds = [...M2_IDLE_GATED_MAPPERS.keys()].join("/");
+    this.log(
+      `Firmware ${firmware.label}: M2 idles ${
+        firmware.m2IdleHigh
+          ? `high — CPLD mappers (${gatedIds}) enabled`
+          : `low — CPLD mappers (${gatedIds}) unavailable`
+      }`,
+    );
+
     this.log("Device ready");
 
     return {
-      firmwareVersion: this.kazzoDevice.firmwareVersion,
+      firmwareVersion: firmware.label,
       deviceName: this.kazzoDevice.productName,
       capabilities: this.capabilities,
     };
@@ -121,12 +171,11 @@ export class KazzoDriver implements DeviceDriver {
   private resolveMapper(mapperId: number) {
     const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
-    const unsupportedReason = UNSUPPORTED_MAPPERS.get(mapperId);
+    const unsupportedReason = this.unsupportedMappers.get(mapperId);
     if (unsupportedReason) {
       throw new Error(
-        `Mapper ${mapperId} (${mapper.name}) can't be dumped with Kazzo: ` +
-          `${unsupportedReason}. The cart itself is fine — use a dumper this ` +
-          "board accepts.",
+        `Mapper ${mapperId} (${mapper.name}) can't be dumped with this ` +
+          `Kazzo firmware: ${unsupportedReason}. The cart itself is fine.`,
       );
     }
     return mapper;

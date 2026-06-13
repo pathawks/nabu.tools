@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { KazzoDevice } from "./kazzo-device";
-import { REQUEST, WRITE_XOR_MASK, VRAM_VERTICAL } from "./kazzo-opcodes";
+import {
+  REQUEST,
+  WRITE_XOR_MASK,
+  VRAM_VERTICAL,
+  VERSION_STRING_SIZE,
+} from "./kazzo-opcodes";
 
 interface OutCall {
   request: number;
@@ -146,6 +151,22 @@ describe("KazzoDevice domain helpers", () => {
     expect(await device.fetchFirmwareVersion()).toBe("kazzo 1.2");
     // Cached — a second call must not re-issue the request.
     expect(await device.fetchFirmwareVersion()).toBe("kazzo 1.2");
+  });
+
+  it("exposes the raw version bytes (clipped build: all 0xFF, no terminator)", async () => {
+    // The clipped 2010-01 build's version section is erased flash; the
+    // decoded string can't represent it, so the driver classifies the raw
+    // bytes (see ./firmware-m2).
+    const raw = new Uint8Array(VERSION_STRING_SIZE).fill(0xff);
+    const { device, inCalls } = makeDevice(() => raw);
+
+    expect(device.firmwareVersionBytes).toBeNull(); // until fetched
+    await device.fetchFirmwareVersion();
+
+    expect(inCalls).toHaveLength(1);
+    expect(inCalls[0].request).toBe(REQUEST.FIRMWARE_VERSION);
+    expect(inCalls[0].length).toBe(VERSION_STRING_SIZE);
+    expect(device.firmwareVersionBytes).toEqual(raw);
   });
 
   it("maps the VRAM pattern (0x05 = vertical)", async () => {
