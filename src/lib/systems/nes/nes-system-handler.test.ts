@@ -133,6 +133,38 @@ describe("NES dump summary (per-section hashes)", () => {
     ]);
   });
 
+  it("adds a Misc ROM row for a NES 2.0 board with a misc-ROM section", () => {
+    const prgBytes = 256 * 1024;
+    const chrBytes = 256 * 1024;
+    const miscBytes = 64 * 1024; // small stand-in for the 8 MiB sample flash
+    const header = buildNes2Header({
+      prgBytes,
+      chrBytes,
+      mapper: 413,
+      mirroring: "vertical",
+      battery: false,
+      miscRoms: 1,
+    });
+    const prg = new Uint8Array(prgBytes).fill(0xa5);
+    const chr = new Uint8Array(chrBytes).fill(0x5a);
+    const misc = new Uint8Array(miscBytes).fill(0x3c);
+    const file = new Uint8Array(
+      header.length + prgBytes + chrBytes + miscBytes,
+    );
+    file.set(header, 0);
+    file.set(prg, header.length);
+    file.set(chr, header.length + prgBytes);
+    file.set(misc, header.length + prgBytes + chrBytes);
+
+    const summary = handler.summarizeDump(file);
+    expect(summary).not.toBeNull();
+    expect(summary!.rows).toEqual([
+      ["PRG ROM", formatBytes(prgBytes), hexStr(crc32(prg))],
+      ["CHR ROM", formatBytes(chrBytes), hexStr(crc32(chr))],
+      ["Misc ROM", formatBytes(miscBytes), hexStr(crc32(misc))],
+    ]);
+  });
+
   it("returns null for a CHR-RAM cart (no CHR ROM to split out)", () => {
     const { file } = makeNesFile(32 * 1024, 0);
     expect(handler.summarizeDump(file)).toBeNull();

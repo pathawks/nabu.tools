@@ -531,11 +531,12 @@ export class NESSystemHandler implements SystemHandler {
   }
 
   /**
-   * Per-section breakdown of a finished dump: the PRG ROM and the CHR ROM,
-   * each with its size and CRC32 — the chip-level view NESCartDB / No-Intro
-   * list. The combined size + hashes already appear in the completion
-   * screen's main hash block, so they aren't repeated here. `rawData` is the
-   * output `.nes` file (16-byte header + PRG + CHR), so its iNES header is
+   * Per-section breakdown of a finished dump: the PRG ROM, the CHR ROM, and
+   * (for NES 2.0 boards that carry one) the miscellaneous-ROM section, each
+   * with its size and CRC32 — the chip-level view NESCartDB / No-Intro list.
+   * The combined size + hashes already appear in the completion screen's main
+   * hash block, so they aren't repeated here. `rawData` is the output `.nes`
+   * file (16-byte header + PRG + CHR [+ misc]), so its iNES header is
    * authoritative for where each region starts.
    *
    * Returns null when there's nothing to break down: a malformed header, a
@@ -553,9 +554,19 @@ export class NESSystemHandler implements SystemHandler {
     // shown above. Nothing to add.
     if (chrBytes <= 0) return null;
 
-    // The declared regions must exactly cover the file; if they don't, the
-    // header disagrees with the dumped bytes and any split would mislead.
-    if (dataStart + prgBytes + chrBytes !== rawData.length) return null;
+    // A NES 2.0 board may append a miscellaneous-ROM section after CHR
+    // (header byte 14 counts it; mapper 413's 8 MiB sample flash is the one
+    // such board) — whatever trails PRG+CHR is that section.
+    const isNes2 = (rawData[7] & 0x0c) === 0x08;
+    const trailing = rawData.length - (dataStart + prgBytes + chrBytes);
+    const miscBytes = isNes2 && (rawData[14] & 0x03) > 0 ? trailing : 0;
+
+    // The declared regions must exactly cover the file (after accounting for
+    // any misc section); if they don't, the header disagrees with the dumped
+    // bytes and any split would mislead.
+    if (dataStart + prgBytes + chrBytes + miscBytes !== rawData.length) {
+      return null;
+    }
 
     const prg = rawData.subarray(dataStart, dataStart + prgBytes);
     const chr = rawData.subarray(
@@ -572,12 +583,19 @@ export class NESSystemHandler implements SystemHandler {
       hexStr(crc32(bytes)),
     ];
 
+    const rows = [sectionRow("PRG ROM", prg), sectionRow("CHR ROM", chr)];
+    if (miscBytes > 0) {
+      rows.push(
+        sectionRow("Misc ROM", rawData.subarray(dataStart + prgBytes + chrBytes)),
+      );
+    }
+
     return {
       title: "ROM sections",
       columns: ["Section", "Size", "CRC32"],
       monoColumns: [1, 2],
       rightAlignColumns: [1, 2],
-      rows: [sectionRow("PRG ROM", prg), sectionRow("CHR ROM", chr)],
+      rows,
     };
   }
 
