@@ -6,6 +6,14 @@ export interface DeviceDef {
   vendorId: number | null;
   productId: number | null;
   transport: TransportType;
+  /**
+   * Disambiguates entries that share a VID/PID: a connected device matches
+   * this def only when its USB iProduct string contains this substring. A def
+   * without it is the catch-all for its VID/PID — matched only when no
+   * sibling's `usbProduct` claims the device. The Kazzo and INL Retro both
+   * enumerate as 16c0:05dc; the Kazzo firmware reports iProduct "kazzo".
+   */
+  usbProduct?: string;
   systems: { id: string; name: string }[];
   /** Known model identifiers, e.g. ["CECHZM1", "SCPH-98042"]. */
   models?: string[];
@@ -63,6 +71,7 @@ export const DEVICES: Record<string, DeviceDef> = {
     vendorId: 0x16c0,
     productId: 0x05dc,
     transport: "webusb",
+    usbProduct: "kazzo",
     systems: [{ id: "nes", name: "NES / Famicom" }],
     description:
       "Open-source NES/Famicom cartridge dumper by naruko (anago host). " +

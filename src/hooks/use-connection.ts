@@ -6,6 +6,33 @@ import type { DeviceDriver, DeviceInfo, Transport } from "@/lib/types";
 
 // ─── Device probing ──────────────────────────────────────────────────────
 
+/**
+ * Whether a WebUSB device belongs to `dev`, resolving entries that share a
+ * VID/PID. A def with `usbProduct` matches only when the device's iProduct
+ * string contains it; a def without one is the catch-all for its VID/PID,
+ * matched only when no sibling's `usbProduct` claims this device. The Kazzo
+ * and INL Retro both enumerate as 16c0:05dc — the Kazzo reports iProduct
+ * "kazzo", so without this both drivers would claim either device and the
+ * INL driver would run against kazzo firmware (Device error 0xff).
+ */
+export function webusbMatches(
+  d: USBDevice,
+  dev: DeviceDef,
+  defs: DeviceDef[],
+): boolean {
+  if (d.vendorId !== dev.vendorId || d.productId !== dev.productId) return false;
+  const product = d.productName ?? "";
+  if (dev.usbProduct) return product.includes(dev.usbProduct);
+  return !defs.some(
+    (o) =>
+      o !== dev &&
+      o.vendorId === dev.vendorId &&
+      o.productId === dev.productId &&
+      o.usbProduct &&
+      product.includes(o.usbProduct),
+  );
+}
+
 /** Check all browser device APIs for previously-authorized, currently-connected devices. */
 async function probeAvailableDevices(): Promise<Set<string>> {
   const available = new Set<string>();
@@ -30,13 +57,10 @@ async function probeAvailableDevices(): Promise<Set<string>> {
 
   try {
     const devices = (await navigator.usb?.getDevices()) ?? [];
+    const defs = entries.map(([, d]) => d);
     for (const d of devices) {
       for (const [id, dev] of entries) {
-        if (
-          dev.transport === "webusb" &&
-          d.vendorId === dev.vendorId &&
-          d.productId === dev.productId
-        )
+        if (dev.transport === "webusb" && webusbMatches(d, dev, defs))
           available.add(id);
       }
     }
@@ -82,11 +106,8 @@ async function findAuthorized(
     }
     case "webusb": {
       const devices = (await navigator.usb?.getDevices()) ?? [];
-      return (
-        devices.find(
-          (d) => d.vendorId === dev.vendorId && d.productId === dev.productId,
-        ) ?? null
-      );
+      const defs = Object.values(DEVICES);
+      return devices.find((d) => webusbMatches(d, dev, defs)) ?? null;
     }
     case "webhid": {
       const devices = (await navigator.hid?.getDevices()) ?? [];
