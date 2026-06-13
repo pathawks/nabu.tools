@@ -165,7 +165,10 @@ export function useConnection({
       try {
         const transport = driverRef.current?.transport;
         if (transport?.closeNow) transport.closeNow();
-        else transport?.disconnect();
+        // Fallback for transports without closeNow: disconnect() is async,
+        // and the surrounding try/catch can't catch a rejected promise, so
+        // swallow it here to avoid an unhandled rejection during unload.
+        else transport?.disconnect()?.catch(() => {});
       } catch {
         // Best-effort — page is unloading
       }

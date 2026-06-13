@@ -96,13 +96,16 @@ export class SerialTransport implements Transport {
   }
 
   /**
-   * Best-effort synchronous teardown for page unload (`Transport.closeNow`).
-   * Reloading with an open port can hang Chromium's navigation while it
-   * waits on the held serial handle, and the awaits inside `disconnect()`
-   * may never resume once the document starts dying — so issue cancel,
-   * abort, and close in one synchronous burst, swallowing every rejection.
-   * The port object dies with the document either way; this just gives
-   * Chromium the release calls as early as possible.
+   * Best-effort teardown for page unload (`Transport.closeNow`). Reloading
+   * with an open port can hang Chromium's navigation while it waits on the
+   * held serial handle, and the awaits inside `disconnect()` may never
+   * resume once the document starts dying. So issue reader-cancel and
+   * writer-abort synchronously this tick — the calls Chromium needs to
+   * start releasing the handle — then queue releaseLock + port.close()
+   * behind a microtask, since the locks aren't free until cancel/abort
+   * settle. Every rejection is swallowed. The port object dies with the
+   * document either way; this just gets the release calls in as early as
+   * possible.
    */
   closeNow(): void {
     const { port, reader, writer } = this;
