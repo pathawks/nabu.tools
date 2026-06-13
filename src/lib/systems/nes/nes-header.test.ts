@@ -208,6 +208,14 @@ describe("editable header fields", () => {
     expect(out[8] & 0x0f).toBe(before.b8 & 0x0f);
   });
 
+  it("preserves the reserved upper bits of byte 15 when setting the expansion device", () => {
+    const h = baseline();
+    h[15] = 0xc0; // reserved bits 6-7 set
+    const out = applyEditableHeaderFields(h, { expansionDevice: 8 });
+    expect(out[15] & 0x3f).toBe(8); // Zapper written into the low 6 bits
+    expect(out[15] & 0xc0).toBe(0xc0); // reserved bits 6-7 untouched
+  });
+
   it("only writes provided fields and never the content bytes", () => {
     // A full file: header + PRG + CHR with recognizable content.
     const header = baseline();

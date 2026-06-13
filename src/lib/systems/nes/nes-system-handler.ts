@@ -127,11 +127,23 @@ function canonicalHeaderWarnings(
       "Verified No-Intro header's PRG/CHR size fields couldn't be parsed. " +
         "Emitting it as verified — the DAT entry's header looks malformed.",
     );
-  } else if (layout.prgBytes + layout.chrBytes !== contentLength) {
-    warnings.push(
-      `Verified No-Intro header declares ${formatBytes(layout.prgBytes + layout.chrBytes)} of PRG+CHR, ` +
-        `but the dump is ${formatBytes(contentLength)}. Emitting it as verified — the DAT entry's header looks malformed.`,
-    );
+  } else {
+    // A NES 2.0 board may append a miscellaneous-ROM section after CHR
+    // (header byte 14 counts it; mapper 413), so trailing bytes beyond
+    // PRG+CHR are legitimate. Warn only when the dump is too small, or when
+    // no misc section is declared and the sizes still differ.
+    const declared = layout.prgBytes + layout.chrBytes;
+    const isNes2 = (header[7] & 0x0c) === 0x08;
+    const miscCount = isNes2 ? header[14] & 0x03 : 0;
+    if (
+      contentLength < declared ||
+      (miscCount === 0 && contentLength !== declared)
+    ) {
+      warnings.push(
+        `Verified No-Intro header declares ${formatBytes(declared)} of PRG+CHR, ` +
+          `but the dump is ${formatBytes(contentLength)}. Emitting it as verified — the DAT entry's header looks malformed.`,
+      );
+    }
   }
 
   return warnings;
@@ -558,15 +570,17 @@ export class NESSystemHandler implements SystemHandler {
     // (header byte 14 counts it; mapper 413's 8 MiB sample flash is the one
     // such board) — whatever trails PRG+CHR is that section.
     const isNes2 = (rawData[7] & 0x0c) === 0x08;
+    const miscCount = isNes2 ? rawData[14] & 0x03 : 0;
     const trailing = rawData.length - (dataStart + prgBytes + chrBytes);
-    const miscBytes = isNes2 && (rawData[14] & 0x03) > 0 ? trailing : 0;
 
-    // The declared regions must exactly cover the file (after accounting for
-    // any misc section); if they don't, the header disagrees with the dumped
-    // bytes and any split would mislead.
-    if (dataStart + prgBytes + chrBytes + miscBytes !== rawData.length) {
-      return null;
-    }
+    // The declared regions must exactly cover the file: without a misc
+    // section PRG+CHR must land on the end; with one (byte-14 count > 0)
+    // there must be at least one trailing byte for it. Negative trailing is
+    // a truncated file. Either way, don't guess a split.
+    if (trailing < 0) return null;
+    if (miscCount === 0 ? trailing !== 0 : trailing === 0) return null;
+
+    const miscBytes = miscCount > 0 ? trailing : 0;
 
     const prg = rawData.subarray(dataStart, dataStart + prgBytes);
     const chr = rawData.subarray(

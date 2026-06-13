@@ -165,6 +165,22 @@ describe("NES dump summary (per-section hashes)", () => {
     ]);
   });
 
+  it("returns null for a truncated misc-ROM file (declared misc, too few bytes)", () => {
+    const header = buildNes2Header({
+      prgBytes: 256 * 1024,
+      chrBytes: 256 * 1024,
+      mapper: 413,
+      mirroring: "vertical",
+      battery: false,
+      miscRoms: 1,
+    });
+    // Header declares a misc ROM, but the file stops short of even PRG+CHR —
+    // negative trailing must not be treated as a misc payload.
+    const truncated = new Uint8Array(header.length + 256 * 1024); // PRG only
+    truncated.set(header, 0);
+    expect(handler.summarizeDump(truncated)).toBeNull();
+  });
+
   it("returns null for a CHR-RAM cart (no CHR ROM to split out)", () => {
     const { file } = makeNesFile(32 * 1024, 0);
     expect(handler.summarizeDump(file)).toBeNull();
@@ -253,6 +269,29 @@ describe("NES buildOutputFile canonical-header handling", () => {
     expect(out.data[4]).toBe(1); // 16 KB PRG declared — emitted verbatim
     expect(out.meta?.Source).toBe("No-Intro canonical header");
     expect(out.warnings?.some((w) => /PRG\+CHR/.test(w))).toBe(true);
+  });
+
+  it("does not warn when a verified misc-ROM board's dump runs past PRG+CHR (mapper 413)", () => {
+    const canonical = Array.from(
+      buildNes2Header({
+        prgBytes: 256 * 1024,
+        chrBytes: 256 * 1024,
+        mapper: 413,
+        mirroring: "vertical",
+        battery: false,
+        miscRoms: 1,
+      }),
+    );
+    // 256 KiB PRG + 256 KiB CHR + a trailing misc section: the extra bytes
+    // are the misc ROM (header byte 14), not a malformed header.
+    const content = new Uint8Array((256 + 256) * 1024 + 16);
+    const out = handler.buildOutputFile(
+      content,
+      handler.buildReadConfig({ mapper: 413 }),
+      matchedWith(canonical),
+    );
+    expect(out.meta?.Source).toBe("No-Intro canonical header");
+    expect(out.warnings?.some((w) => /PRG\+CHR/.test(w)) ?? false).toBe(false);
   });
 
   it("uses a computed header with no warnings when nothing matched", () => {

@@ -219,7 +219,8 @@ export function applyEditableHeaderFields(
     h[8] = (h[8] & 0x0f) | ((fields.submapper & 0x0f) << 4);
   }
   if (fields.expansionDevice !== undefined) {
-    h[15] = fields.expansionDevice & 0x3f;
+    // Bits 0-5; preserve the reserved upper two bits (6-7).
+    h[15] = (h[15] & 0xc0) | (fields.expansionDevice & 0x3f);
   }
 
   return h;
