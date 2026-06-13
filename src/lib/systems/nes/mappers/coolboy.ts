@@ -58,15 +58,16 @@
  * Cart-side CHR is RAM only on submappers 0/1 — `dumpChrRom` returns
  * an empty array.
  *
- * Hardware caveat: SMD172-family carts have an on-board reset detector
- * that some forum reports claim re-locks the mapper mid-dump on generic
- * dumpers (CopyNES and Tengu are reported as clean). A dumper driving
- * dense back-to-back bus cycles latches these registers with occasional
- * stochastic dropouts — the consensus read below exists for exactly
- * that. The INL Retro, which idles M2 low and emits one M2 pulse per
- * write, never latches a single register write at all; its driver
- * pre-flight-rejects this mapper — see UNSUPPORTED_MAPPERS in
- * drivers/inl/unsupported-mappers for the full hardware account.
+ * Hardware caveat: SMD172-family carts require the M2/phi2 clock to idle
+ * HIGH between bus operations — sustained M2-low reads as console-off and
+ * register writes are reverted (reads are unaffected). A dumper that
+ * parks M2 high latches these registers with occasional stochastic
+ * dropouts — the consensus read below exists for exactly that. Dumpers
+ * whose firmware idles M2 low (stock INL Retro builds) can read but never
+ * keep a register write; the INL driver feature-detects the connected
+ * firmware's M2 idle level and pre-flight-rejects this mapper on stock
+ * builds — see M2_IDLE_GATED_MAPPERS in drivers/inl/unsupported-mappers
+ * for the full account.
  *
  * References:
  *   - ClusterM Sub1 (Mindkids, $5000): github.com/ClusterM/famicom-dumper-client

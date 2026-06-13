@@ -25,6 +25,9 @@ export const PINPORT = {
   CTL_RD: 6, // RL=4 — read a control pin
   ADDR_SET: 17, // set address bus value
   // Control pin operand IDs for CTL_RD
+  // M2/phi2 CPU clock (PC0) — its post-NES_INIT idle level feature-detects
+  // stock vs M2-idle-high firmware (see ./unsupported-mappers).
+  M2: 0,
   CIA10: 11, // CIRAM A10 (nametable mirroring)
   CICE: 6, // CIRAM /CE
 } as const;
@@ -58,7 +61,7 @@ export const NES = {
   // the WRITTEN address until two consecutive reads agree, so a target
   // whose reads flicker (e.g. $5xxx on the mapper-268 board) spins the
   // firmware until a physical replug — which is exactly why it is NOT used
-  // as an M2-burst write primitive (see UNSUPPORTED_MAPPERS in
+  // as an M2-burst write primitive (see M2_IDLE_GATED_MAPPERS in
   // ./unsupported-mappers).
   MMC3_PRG_FLASH_WR: 0x07,
   SET_CUR_BANK: 0x20,

@@ -19,15 +19,17 @@ import type {
 } from "@/lib/types";
 import type { INLDevice } from "./inl-device";
 import type { InlTransport } from "./inl-transport";
-import { IO, MEM, MAPVAR } from "./inl-opcodes";
+import { IO, MEM, MAPVAR, PINPORT } from "./inl-opcodes";
 import { dumpRegion } from "./inl-dump";
 import { InlNesBus } from "./inl-nes-bus";
 import { detectCiramMirroring } from "./detect-mirroring";
 import { getNesMapper } from "@/lib/systems/nes/mappers";
-// Catalog mappers whose CPLD refuses this device's synthesized writes, with
-// the full hardware account of why. Used both to grey them out in the config
-// UI and to pre-flight-reject them in readROM.
-import { UNSUPPORTED_MAPPERS } from "./unsupported-mappers";
+// Catalog mappers gated on the firmware's M2 idle level (the SMD172-family
+// CPLD boards need M2 to idle high; stock firmware idles it low). The gate
+// is feature-detected per connection in initialize(); when closed, the
+// affected mappers are greyed out in the config UI and pre-flight-rejected
+// in readROM.
+import { unsupportedMappersFor } from "./unsupported-mappers";
 
 export class INLDriver implements DeviceDriver {
   readonly id = "inl-retro";
@@ -38,10 +40,24 @@ export class INLDriver implements DeviceDriver {
       operations: ["dump_rom"],
       autoDetect: true,
       // Greys these mappers out in the config UI; readROM pre-flight-
-      // rejects them too. See ./unsupported-mappers for why.
-      unsupportedMappers: [...UNSUPPORTED_MAPPERS.keys()],
+      // rejects them too. Pre-probe default assumes stock firmware (M2
+      // idles low); initialize() re-derives this from the M2 probe.
+      unsupportedMappers: [...unsupportedMappersFor(false).keys()],
     },
   ];
+
+  /**
+   * Whether the connected firmware parks M2 high between bus operations
+   * (the feature/m2-idle-high branch of INL-retro-progdump) — the feature
+   * the SMD172-family CPLD mappers require. Probed once per connection in
+   * initialize(); false (stock-equivalent) until then.
+   */
+  private _m2IdleHigh = false;
+  get m2IdleHigh(): boolean {
+    return this._m2IdleHigh;
+  }
+  /** Effective unsupported-mapper map for this session (see ./unsupported-mappers). */
+  private unsupportedMappers = unsupportedMappersFor(false);
 
   private events: Partial<DeviceDriverEvents> = {};
   /**
@@ -77,6 +93,26 @@ export class INLDriver implements DeviceDriver {
 
     await this.inlDevice.io(IO.IO_RESET);
     await this.inlDevice.io(IO.NES_INIT);
+
+    // Feature-detect the firmware's M2 idle level by reading the pin once:
+    // stock firmware leaves M2/PC0 low after NES init; the m2-idle-high
+    // build (feature/m2-idle-high branch of INL-retro-progdump) parks it
+    // high. The probe (PINPORT CTL_RD, operand M2) exists in stock firmware
+    // too; any probe error is treated as stock.
+    try {
+      this._m2IdleHigh =
+        (await this.inlDevice.pinport(PINPORT.CTL_RD, PINPORT.M2)) !== 0;
+    } catch {
+      this._m2IdleHigh = false;
+    }
+    this.unsupportedMappers = unsupportedMappersFor(this._m2IdleHigh);
+    const nesCapability = this.capabilities.find((c) => c.systemId === "nes");
+    if (nesCapability) {
+      nesCapability.unsupportedMappers = [...this.unsupportedMappers.keys()];
+    }
+    if (this._m2IdleHigh) {
+      this.log("Firmware idles M2 high — M2-gated CPLD mappers enabled");
+    }
 
     this.log("Device ready");
 
@@ -126,12 +162,11 @@ export class INLDriver implements DeviceDriver {
 
     const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
-    const unsupportedReason = UNSUPPORTED_MAPPERS.get(mapperId);
+    const unsupportedReason = this.unsupportedMappers.get(mapperId);
     if (unsupportedReason) {
       throw new Error(
-        `Mapper ${mapperId} (${mapper.name}) can't be dumped with the INL Retro: ` +
-          `${unsupportedReason}. The cart itself is fine — use a dumper this ` +
-          "board accepts.",
+        `Mapper ${mapperId} (${mapper.name}) can't be dumped with this INL ` +
+          `Retro firmware: ${unsupportedReason}. The cart itself is fine.`,
       );
     }
 

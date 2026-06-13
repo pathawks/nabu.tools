@@ -20,6 +20,8 @@ import { SMS4Driver } from "@/lib/drivers/sms4/sms4-driver";
 import { DEVICE_FILTERS as SMS4_FILTERS } from "@/lib/drivers/sms4/sms4-commands";
 import { InlTransport } from "@/lib/drivers/inl/inl-transport";
 import { INLDriver } from "@/lib/drivers/inl/inl-driver";
+import { KazzoTransport } from "@/lib/drivers/kazzo/kazzo-transport";
+import { KazzoDriver } from "@/lib/drivers/kazzo/kazzo-driver";
 import type {
   DeviceDriver,
   DeviceIdentity,
@@ -76,6 +78,17 @@ export const CONNECTION_ENTRIES: Record<string, ConnectionEntry> = {
         ? (t as InlTransport).connectWithDevice(authorized as USBDevice)
         : (t as InlTransport).connect(),
     createDriver: (t) => new INLDriver(t as InlTransport),
+    postInitLog: (info) =>
+      `Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`,
+  },
+
+  KAZZO: {
+    createTransport: () => new KazzoTransport(),
+    connect: (t, { authorized }) =>
+      authorized
+        ? (t as KazzoTransport).connectWithDevice(authorized as USBDevice)
+        : (t as KazzoTransport).connect(),
+    createDriver: (t) => new KazzoDriver(t as KazzoTransport),
     postInitLog: (info) =>
       `Connected: ${info.deviceName} (fw: ${info.firmwareVersion})`,
   },
