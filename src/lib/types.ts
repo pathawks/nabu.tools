@@ -12,6 +12,14 @@ export interface Transport {
   readonly connected: boolean;
   connect(options?: TransportConnectOptions): Promise<DeviceIdentity>;
   disconnect(): Promise<void>;
+  /**
+   * Synchronous best-effort teardown for page unload. A dying document
+   * may never resume the awaits inside `disconnect()`, so this kicks off
+   * every release step in one synchronous burst without awaiting between
+   * them. Optional — transports whose handles don't outlive the document
+   * (WebUSB/WebHID release cleanly on unload) omit it.
+   */
+  closeNow?(): void;
   send(data: Uint8Array, options?: TransferOptions): Promise<void>;
   receive(length: number, options?: TransferOptions): Promise<Uint8Array>;
   on<K extends keyof TransportEvents>(

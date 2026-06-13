@@ -107,6 +107,9 @@ const TRANSPORT_LABEL: Record<string, string> = {
   webusb: "USB device",
 };
 
+/** localStorage key for the last successfully-connected device id. */
+const LAST_DEVICE_KEY = "nabu:last-device";
+
 type LogFn = (msg: string, level?: "info" | "warn" | "error") => void;
 
 interface UseConnectionOptions {
@@ -152,17 +155,27 @@ export function useConnection({
     onDisconnectedRef.current = onDisconnected;
   }, [onDisconnected]);
 
-  // Close transport on page unload/refresh
+  // Close transport on page unload/refresh. Prefer the synchronous
+  // closeNow teardown: the awaits inside disconnect() may never resume in
+  // a dying document, leaving the port held and (on serial) hanging the
+  // reload. pagehide is registered too — it fires in cases beforeunload
+  // doesn't (e.g. bfcache navigations), and the teardown is idempotent.
   useEffect(() => {
     const cleanup = () => {
       try {
-        driverRef.current?.transport?.disconnect();
+        const transport = driverRef.current?.transport;
+        if (transport?.closeNow) transport.closeNow();
+        else transport?.disconnect();
       } catch {
         // Best-effort — page is unloading
       }
     };
     window.addEventListener("beforeunload", cleanup);
-    return () => window.removeEventListener("beforeunload", cleanup);
+    window.addEventListener("pagehide", cleanup);
+    return () => {
+      window.removeEventListener("beforeunload", cleanup);
+      window.removeEventListener("pagehide", cleanup);
+    };
   }, []);
 
   // ─── Probe for available devices ──────────────────────────────────────
@@ -232,7 +245,16 @@ export function useConnection({
   /** Shared post-connect: set state and notify caller. */
   const finishConnect = useCallback(
     (drv: DeviceDriver, info: DeviceInfo, deviceId?: string) => {
-      if (deviceId) lastDeviceIdRef.current = deviceId;
+      if (deviceId) {
+        lastDeviceIdRef.current = deviceId;
+        // Persist across reloads so the page-load auto-reconnect tries the
+        // device the user actually had connected before probing the rest.
+        try {
+          localStorage.setItem(LAST_DEVICE_KEY, deviceId);
+        } catch {
+          /* storage unavailable (private mode etc.) */
+        }
+      }
       // Set the ref synchronously so reprobe() can't race us into a duplicate
       // connection before React commits the driver state update.
       driverRef.current = drv;
@@ -328,7 +350,21 @@ export function useConnection({
     autoConnectAttempted.current = true;
 
     (async () => {
-      for (const id of Object.keys(CONNECTION_ENTRIES)) {
+      // Last-used device first (persisted across reloads), then the rest
+      // in registry order — with several authorized devices present, a
+      // reload should resume the one that was actually in use.
+      let lastUsed: string | null = null;
+      try {
+        lastUsed = localStorage.getItem(LAST_DEVICE_KEY);
+      } catch {
+        /* storage unavailable */
+      }
+      const ids = Object.keys(CONNECTION_ENTRIES);
+      if (lastUsed && ids.includes(lastUsed)) {
+        ids.splice(ids.indexOf(lastUsed), 1);
+        ids.unshift(lastUsed);
+      }
+      for (const id of ids) {
         try {
           if (await connectDevice(id, { auto: true })) return;
         } catch (e) {

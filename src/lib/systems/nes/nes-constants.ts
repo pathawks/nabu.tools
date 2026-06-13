@@ -102,7 +102,9 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
   },
   {
     id: 4,
-    name: "MMC3 (TxROM)",
+    // MMC6 (HKROM) is mapper 4 too — same banking, different save
+    // hardware. The save path auto-detects it (see mmc3.ts dumpSave).
+    name: "MMC3 / MMC6 (TxROM, HKROM)",
     prgSizesKB: [32, 64, 128, 256, 512],
     chrSizesKB: [0, 8, 16, 32, 64, 128, 256],
     mirroring: "mapper_controlled",

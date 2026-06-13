@@ -66,6 +66,20 @@ export class DumpJobImpl {
         this.setState("dumping_save");
         try {
           const saveData = await this.driver.readSave(readConfig, signal);
+          // A real save is never a solid 0x00/0xFF block — those are the
+          // electrical signatures of a save chip that was never enabled
+          // onto the bus (0x00) or an unwired/erased region (0xFF).
+          // Hardware-found 2026-06-13: an MMC3 cart's save dumped as pure
+          // zeros and looked plausible until inspected. Warn, don't fail —
+          // the bytes are still saved for inspection.
+          const fill = uniformFillByte(saveData);
+          if (fill === 0x00 || fill === 0xff) {
+            this.log(
+              `Save data is a uniform 0x${fill.toString(16).padStart(2, "0").toUpperCase()} fill — ` +
+                "this is almost never real save data. Re-dump before trusting it.",
+              "warn",
+            );
+          }
           saveFile = {
             data: saveData,
             filename: `dump.sav`,
@@ -147,4 +161,14 @@ export class DumpJobImpl {
   private log(message: string, level: "info" | "warn" | "error" = "info") {
     this.events.onLog?.(message, level);
   }
+}
+
+/**
+ * The fill byte when `data` is one repeated value, else null. Saves that
+ * come back as a solid block are hardware-failure signatures, not data.
+ */
+function uniformFillByte(data: Uint8Array): number | null {
+  if (data.length === 0) return null;
+  const first = data[0];
+  return data.every((b) => b === first) ? first : null;
 }

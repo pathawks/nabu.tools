@@ -150,6 +150,130 @@ describe("MMC3 (mapper 4)", () => {
     const out = await mmc3.dumpChrRom(new Mmc3Bus(new Uint8Array(0), chr), 32);
     expectSameBytes(out, chr);
   });
+
+  // Hardware-found gap (an MMC3 battery-save cart, 2026-06-13): $A001 bit 7 must
+  // be set before $6000-$7FFF returns SRAM; with the chip off the bus the
+  // save dumps as uniform fill. The dump brackets the read FME-7-style:
+  // enabled+write-protected ($C0) only for the read, then chip back off
+  // the bus ($40) so it isn't exposed for the rest of the session.
+  it("dumpSave brackets the read: enable, read SRAM, disable", async () => {
+    class SramBus implements NesBus {
+      ramCtrl = 0; // power-on: chip off the bus
+      ramCtrlAtRead = -1;
+      readonly sram = makeImage(8 * 1024);
+      async setup() {}
+      async writeCpu(addr: number, value: number) {
+        if (addr === 0xa001) this.ramCtrl = value;
+      }
+      async readCpu(_addr: number, length: number) {
+        this.ramCtrlAtRead = this.ramCtrl;
+        if ((this.ramCtrl & 0x80) === 0) return new Uint8Array(length);
+        return this.sram.slice(0, length);
+      }
+    }
+    const bus = new SramBus();
+    const out = await mmc3.dumpSave!(bus, 8);
+    expectSameBytes(out, bus.sram);
+    expect(bus.ramCtrlAtRead).toBe(0xc0); // enabled + write-protected
+    expect(bus.ramCtrl).toBe(0x40); // re-parked off the bus afterwards
+  });
+
+  // MMC6 / HKROM: same mapper id, but the save is 1 KiB
+  // inside the MMC6 at $7000-$73FF — $6000 is open bus, $8000 bit 5
+  // master-gates the RAM (while clear, $A001 is forced to $00), and
+  // $A001 holds per-512-byte-half read/write enables (HhLl in bits 7-4).
+  // Hardware-validated 2026-06-13: open bus at $6000 can read as a few
+  // capacitance-echo values rather than uniform fill, so detection
+  // gates on byte diversity and then fingerprints the MMC6 by its
+  // enable-dependent driven zeros (a single-half enable actively drives
+  // the OTHER half to zero — open bus can't respond to $A001 values).
+  class Mmc6Bus implements NesBus {
+    reg8000 = 0;
+    ramCtrl = 0;
+    ramCtrlAtRead = -1;
+    readonly ram = makeImage(1024);
+    async setup() {}
+    async writeCpu(addr: number, value: number) {
+      if (addr === 0x8000) {
+        this.reg8000 = value;
+        // Master gate: while bit 5 is clear the protect register is
+        // continuously forced to $00 and writes to it are ignored.
+        if ((value & 0x20) === 0) this.ramCtrl = 0;
+      } else if (addr === 0xa001) {
+        if (this.reg8000 & 0x20) this.ramCtrl = value;
+      }
+    }
+    async readCpu(addr: number, length: number) {
+      const out = new Uint8Array(length);
+      for (let i = 0; i < length; i++) {
+        const a = addr + i;
+        if (a < 0x7000 || this.ramCtrl === 0) {
+          // Open bus: low-diversity capacitance echo, NOT uniform —
+          // the hardware-observed pattern that defeated a uniform gate.
+          out[i] = [0xec, 0xcc, 0xfc, 0xee][i & 3];
+          continue;
+        }
+        this.ramCtrlAtRead = this.ramCtrl;
+        const off = (a - 0x7000) & 0x3ff; // mirrored through $7FFF
+        const readable = off < 0x200 ? 0x20 : 0x80; // L : H read enables
+        // A read-disabled half reads back as zero.
+        out[i] = this.ramCtrl & readable ? this.ram[off] : 0;
+      }
+      return out;
+    }
+  }
+
+  it("dumpSave auto-detects MMC6 past open-bus noise at $6000", async () => {
+    const bus = new Mmc6Bus();
+    const out = await mmc3.dumpSave!(bus, 8);
+    expectSameBytes(out, bus.ram);
+    expect(bus.ramCtrlAtRead).toBe(0xa0); // both halves readable, writes denied
+    expect(bus.ramCtrl).toBe(0); // protect cleared on the way out
+    expect(bus.reg8000 & 0x20).toBe(0); // master gate re-closed
+  });
+
+  it("dumpSave returns the $6000 read when neither window answers", async () => {
+    class NoRamBus implements NesBus {
+      async setup() {}
+      async writeCpu() {}
+      async readCpu(_addr: number, length: number) {
+        return new Uint8Array(length).fill(0xff); // open bus everywhere
+      }
+    }
+    const out = await mmc3.dumpSave!(new NoRamBus(), 8);
+    expect(out.length).toBe(8 * 1024); // the $6000 read, not the 1 KiB probe
+    expect(out.every((b) => b === 0xff)).toBe(true); // upstream warning fires
+  });
+
+  // A real MMC3 whose battery SRAM is nearly empty also fails the
+  // diversity gate and zero-fills the fingerprint windows — the
+  // cross-check against the $6000 pass (where MMC3 SRAM was enabled,
+  // but an MMC6 would have shown open bus) must catch it and keep the
+  // full 8 KiB.
+  it("dumpSave does not mistake a zero-heavy MMC3 SRAM for an MMC6", async () => {
+    class SparseSramBus implements NesBus {
+      ramCtrl = 0;
+      readonly sram = new Uint8Array(8 * 1024);
+      constructor() {
+        this.sram[0x1ff0] = 0x42; // a few live bytes outside the probe windows
+        this.sram[0x1ff1] = 0x99;
+      }
+      async setup() {}
+      async writeCpu(addr: number, value: number) {
+        if (addr === 0xa001) this.ramCtrl = value;
+      }
+      async readCpu(addr: number, length: number) {
+        // MMC3: $A001 bit 7 enables the whole 8 KiB at $6000-$7FFF.
+        if ((this.ramCtrl & 0x80) === 0) return new Uint8Array(length);
+        const off = addr - 0x6000;
+        return this.sram.slice(off, off + length);
+      }
+    }
+    const bus = new SparseSramBus();
+    const out = await mmc3.dumpSave!(bus, 8);
+    expect(out.length).toBe(8 * 1024);
+    expect(out[0x1ff0]).toBe(0x42); // the real (sparse) save, intact
+  });
 });
 
 describe("MMC2 (mapper 9)", () => {

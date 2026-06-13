@@ -23,6 +23,7 @@
 import type { NesBus } from "../bus";
 import type { NesMapper, ProgressCb } from "./types";
 import { walkBanks } from "./bank-walk";
+import { bytesEqual, readBankWithConsensus } from "./bank-reliability";
 
 const BANK_SELECT = 0x8000;
 const BANK_DATA = 0x8001;
@@ -74,7 +75,9 @@ export async function setupBanks(bus: NesBus): Promise<void> {
 
 /** Set up MMC3 registers to a known state before dumping. */
 async function initMmc3(bus: NesBus): Promise<void> {
-  // PRG-RAM: disable writes, allow reads (so writes to $6000-$7FFF are ignored)
+  // PRG-RAM: bit 7 clear takes the chip off the bus entirely (and bit 6
+  // write-protects it on variants that ignore bit 7), so no ROM pass can
+  // touch a battery save.
   await bus.writeCpu(PRG_RAM_CTRL, 0x40);
   await setupBanks(bus);
 }
@@ -175,4 +178,93 @@ export const mmc3: NesMapper = {
 
   dumpChrRom: (bus, sizeKB, onProgress) =>
     dumpMmc3StyleChrRom(bus, sizeKB, MMC3, onProgress),
+
+  // Same protective bracket as FME-7's hardware-validated dumpSave:
+  // expose the SRAM only for the read itself. $A001 bit 7 must be SET
+  // before $6000-$7FFF returns SRAM (the power-on/init state leaves the
+  // chip off the bus, which dumps as uniform fill); bit 6 stays set so
+  // the window is write-protected even while exposed. MMC3-specific —
+  // RAMBO-1 shares the dump core but its $A001 is not a PRG-RAM control
+  // register.
+  async dumpSave(bus, sramKB, onProgress) {
+    await bus.setup();
+    await bus.writeCpu(PRG_RAM_CTRL, 0xc0);
+    const data = await bus.readCpu(0x6000, sramKB * 1024, onProgress);
+    // Take the chip back off the bus as soon as the read completes —
+    // deasserting its enable shields the battery save from stray bus
+    // cycles for the rest of the session, including the unplug
+    // power-down, the riskiest window.
+    await bus.writeCpu(PRG_RAM_CTRL, 0x40);
+    // A real SRAM read is byte-diverse. Open bus is not — it reads as
+    // uniform fill OR as a handful of capacitance-echo values (both seen
+    // on hardware), so gate on diversity rather than uniformity.
+    if (countDistinct(data) >= OPEN_BUS_MAX_DISTINCT) return data;
+
+    // Nothing convincing at $6000. Mapper 4 covers a second board
+    // family: MMC6 / HKROM, whose save is 1 KiB inside
+    // the MMC6 itself at $7000-$73FF behind a different enable chain —
+    // $8000 bit 5 is a master gate (while clear, $A001 is forced to
+    // $00), and $A001 holds per-512-byte-half read/write enables (HhLl
+    // in bits 7-4). All of these writes are no-ops on a real MMC3
+    // ($8000 bits 3-5 unused; $A001 transitions end chip-disabled).
+    //
+    // Detection fingerprint (hardware-validated on an HKROM cart,
+    // 2026-06-13): with the gate up and only ONE half read-enabled, the
+    // MMC6 actively DRIVES the other half to zero — a response to the
+    // register value that open bus cannot mimic.
+    await bus.writeCpu(BANK_SELECT, 0x20);
+    await bus.writeCpu(PRG_RAM_CTRL, 0x80); // upper half readable only
+    const upperOnly = await bus.readCpu(0x7000, 1024);
+    await bus.writeCpu(PRG_RAM_CTRL, 0x20); // lower half readable only
+    const lowerOnly = await bus.readCpu(0x7000, 1024);
+    const drivesDisabledHalves =
+      upperOnly.subarray(0, 512).every((b) => b === 0) &&
+      lowerOnly.subarray(512).every((b) => b === 0);
+    // False-positive guard: an MMC3 whose battery SRAM zero-fills these
+    // exact windows would also pass the zero checks — but then the same
+    // window inside the $6000 pass (which had the MMC3 SRAM enabled)
+    // would match what the "enabled half" returns now. On an MMC6 the
+    // $6000 pass saw open bus there instead.
+    const mmc3Lookalike = bytesEqual(
+      upperOnly.subarray(512),
+      data.subarray(0x1200, 0x1400),
+    );
+
+    if (drivesDisabledHalves && !mmc3Lookalike) {
+      // Both halves readable, writes denied; consensus-read the 1 KiB —
+      // a battery-weak MMC6 array flickers individual cells, which a
+      // single read would silently mis-capture.
+      await bus.writeCpu(PRG_RAM_CTRL, 0xa0);
+      const { data: mmc6 } = await readBankWithConsensus({
+        read: () => bus.readCpu(0x7000, 1024, onProgress),
+        label: "MMC6 save RAM",
+      });
+      await bus.writeCpu(PRG_RAM_CTRL, 0x00);
+      await bus.writeCpu(BANK_SELECT, 0x00);
+      return mmc6;
+    }
+
+    // Not an MMC6 — re-park the probe registers and return the $6000
+    // read; if it was uniform, the dump-job's warning tells the user.
+    await bus.writeCpu(PRG_RAM_CTRL, 0x00);
+    await bus.writeCpu(BANK_SELECT, 0x00);
+    return data;
+  },
 };
+
+/**
+ * Open bus reads as one value or a small set of bus-echo values (6 and
+ * 4 distinct observed on hardware across 4 KiB windows); real SRAM —
+ * even a freshly-initialized save — is far more diverse. The threshold
+ * splits those regimes with wide margins on both sides.
+ */
+const OPEN_BUS_MAX_DISTINCT = 16;
+
+function countDistinct(data: Uint8Array): number {
+  const seen = new Set<number>();
+  for (const b of data) {
+    seen.add(b);
+    if (seen.size >= OPEN_BUS_MAX_DISTINCT) break;
+  }
+  return seen.size;
+}
