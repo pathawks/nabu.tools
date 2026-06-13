@@ -29,6 +29,7 @@ import { bf909x } from "./bf909x";
 import { dxrom } from "./dxrom";
 import { quattro } from "./quattro";
 import { mapper268Mindkids } from "./coolboy";
+import { mapper413 } from "./batmap";
 import { mapper470 } from "./inx007t";
 import type { NesMapper } from "./types";
 
@@ -55,6 +56,10 @@ export const NES_MAPPERS: Record<number, NesMapper> = {
   // that device's synthesized writes; see UNSUPPORTED_MAPPERS in
   // drivers/inl/unsupported-mappers for the hardware-classified account.
   268: mapper268Mindkids,
+  // Spec-derived implementation (emulator/FPGA consensus), not yet
+  // hardware-validated; the only mapper with a miscellaneous-ROM
+  // section. See the data-port probe in batmap.ts.
+  413: mapper413,
   // Vendor-recipe implementation, not yet hardware-validated on a nabu
   // driver (see the cadence lesson in inx007t.ts); INL pre-flight-
   // rejects this id too — same CPLD-refusal family as 268.

@@ -140,3 +140,34 @@ describe("buildNes2Header", () => {
     ).toThrow(/too large/);
   });
 });
+
+describe("buildNes2Header miscellaneous-ROM count (mapper 413)", () => {
+  it("encodes the mapper-413 board: split mapper nibbles and byte-14 misc count", () => {
+    const h = buildNes2Header({
+      prgBytes: 262144, // 256 KiB
+      chrBytes: 262144, // 256 KiB
+      mapper: 413,
+      mirroring: "vertical",
+      battery: false,
+      miscRoms: 1,
+    });
+    expectNes2Magic(h);
+    expect(h[4]).toBe(16); // 256 KiB PRG in 16 KiB units
+    expect(h[5]).toBe(32); // 256 KiB CHR in 8 KiB units
+    expect(h[6]).toBe(0xd1); // mapper low nibble 0xD, vertical mirroring
+    expect(h[7]).toBe(0x98); // mapper mid nibble 9, NES 2.0 indicator
+    expect(h[8]).toBe(0x01); // mapper high bits 1, submapper 0
+    expect(h[14]).toBe(0x01); // one miscellaneous ROM follows CHR
+  });
+
+  it("defaults the misc-ROM count to zero", () => {
+    const h = buildNes2Header({
+      prgBytes: 32768,
+      chrBytes: 8192,
+      mapper: 0,
+      mirroring: "horizontal",
+      battery: false,
+    });
+    expect(h[14]).toBe(0x00);
+  });
+});

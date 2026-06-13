@@ -74,7 +74,8 @@ export class NESSystemHandler implements SystemHandler {
             : `PRG: ${m.prgSizesKB.join("/")}KB` +
               (m.chrSizesKB.some((c) => c > 0)
                 ? ` · CHR: ${m.chrSizesKB.filter((c) => c > 0).join("/")}KB`
-                : " · CHR RAM"),
+                : " · CHR RAM") +
+              (m.miscRomKB ? ` · Misc ROM: ${m.miscRomKB / 1024}MB` : ""),
           disabled,
         };
       }),
@@ -164,7 +165,7 @@ export class NESSystemHandler implements SystemHandler {
   estimateDumpSize(values: ConfigValues): number {
     const def = getMapperDef((values.mapper as number) ?? 0);
     const { prgKB, chrKB } = resolveSizesKB(values, def);
-    return 16 + (prgKB + chrKB) * 1024;
+    return 16 + (prgKB + chrKB + (def?.miscRomKB ?? 0)) * 1024;
   }
 
   validate(values: ConfigValues): ValidationResult {
@@ -224,6 +225,9 @@ export class NESSystemHandler implements SystemHandler {
         mapper,
         prgSizeBytes: prgSizeKB * 1024,
         chrSizeBytes: chrSizeKB * 1024,
+        // Fixed per board (never user-selectable); 0 for all but
+        // mapper 413's sample flash.
+        miscSizeBytes: (mapperDef?.miscRomKB ?? 0) * 1024,
         // Mirroring isn't user-set; default per the mapper. It doesn't
         // affect the dumped bytes, and a No-Intro match restamps the
         // canonical header regardless.
@@ -249,6 +253,7 @@ export class NESSystemHandler implements SystemHandler {
     const p = config.params;
     const prgBytes = p.prgSizeBytes as number;
     const chrBytes = p.chrSizeBytes as number;
+    const miscBytes = (p.miscSizeBytes as number) ?? 0;
     const mapper = p.mapper as number;
     const mirroring = p.mirroring as NesMirroring;
     const battery = p.battery as boolean;
@@ -290,6 +295,7 @@ export class NESSystemHandler implements SystemHandler {
           chrRamKB,
           prgRamKB,
           prgNvramKB,
+          miscRoms: miscBytes > 0 ? 1 : 0,
         });
 
     const output = new Uint8Array(header.length + rawData.length);
@@ -315,6 +321,7 @@ export class NESSystemHandler implements SystemHandler {
             : chrRamKB > 0
               ? `None (${chrRamKB} KB CHR-RAM)`
               : "None",
+        ...(miscBytes > 0 ? { "Misc ROM": `${miscBytes / 1024} KB` } : {}),
         Mirroring: mirroring,
         Battery: battery ? "Yes" : "No",
       },
@@ -323,8 +330,11 @@ export class NESSystemHandler implements SystemHandler {
 
   async computeHashes(rawData: Uint8Array): Promise<VerificationHashes> {
     // No-Intro NES DATs are "Headered" — hash includes the 16-byte iNES header.
-    // rawData here is PRG+CHR without header, but buildOutputFile prepends it.
-    // We hash the raw data for now; verify() will try both raw and headered.
+    // rawData here is the headerless content in NES 2.0 file order —
+    // PRG+CHR, plus the miscellaneous-ROM area when the board has one
+    // (mapper 413) — and buildOutputFile prepends the header. DAT entries
+    // hash the whole headered file, so misc data belongs in the content
+    // hash; verify() reconstructs header+content for the exact match.
     const [sha1, sha256] = await Promise.all([
       sha1Hex(rawData),
       sha256Hex(rawData),
@@ -395,12 +405,14 @@ export class NESSystemHandler implements SystemHandler {
    * recovers them.
    */
   analyzeDump(content: Uint8Array, config: ReadConfig): string[] {
+    const notes = this.analyzeMiscRom(content, config);
+
     const PRG_BANK = 8 * 1024;
     const prgBytes = (config.params.prgSizeBytes as number) ?? 0;
-    if (prgBytes <= 0 || prgBytes > content.length) return [];
+    if (prgBytes <= 0 || prgBytes > content.length) return notes;
 
     const numBanks = Math.floor(prgBytes / PRG_BANK);
-    if (numBanks < 2) return [];
+    if (numBanks < 2) return notes;
 
     const prg = content.subarray(0, prgBytes);
     const bank0 = prg.subarray(0, PRG_BANK);
@@ -409,7 +421,7 @@ export class NESSystemHandler implements SystemHandler {
     // "identical to bank 0" meaningless: that's a blank/dead read, a
     // different signal. Skip rather than cry wolf. Same predicate the
     // in-dump retry uses — see mappers/bank-reliability.
-    if (isUniformFill(bank0)) return [];
+    if (isUniformFill(bank0)) return notes;
 
     let dup = 0;
     for (let i = 1; i < numBanks; i++) {
@@ -417,10 +429,37 @@ export class NESSystemHandler implements SystemHandler {
       if (bytesEqual(prg.subarray(start, start + PRG_BANK), bank0)) dup++;
     }
 
-    if (dup === 0) return [];
+    if (dup === 0) return notes;
     return [
+      ...notes,
       `${dup} of ${numBanks} PRG banks (8 KiB) are byte-identical to bank 0 — ` +
         "if unexpected, this can indicate a bank-switch latch failure; re-dumping may recover them.",
+    ];
+  }
+
+  /**
+   * Flag a miscellaneous-ROM area that came back as one uniform byte.
+   * The in-dump port probe (see mappers/batmap) cannot tell a dead
+   * data port from genuinely uniform stream data — both satisfy its
+   * overlap check — so this is the post-dump half of that trade-off:
+   * the one board we dump misc ROM from carries minutes of speech, and
+   * a whole section of a single byte value is a dead/misread port, not
+   * plausible content. Trailing erased-flash fill is normal; an entire
+   * uniform section is the signal.
+   */
+  private analyzeMiscRom(content: Uint8Array, config: ReadConfig): string[] {
+    const prgBytes = (config.params.prgSizeBytes as number) ?? 0;
+    const chrBytes = (config.params.chrSizeBytes as number) ?? 0;
+    const miscBytes = (config.params.miscSizeBytes as number) ?? 0;
+    const start = prgBytes + chrBytes;
+    if (miscBytes <= 0 || start + miscBytes > content.length) return [];
+
+    const misc = content.subarray(start, start + miscBytes);
+    if (!isUniformFill(misc)) return [];
+    return [
+      `The ${miscBytes / 1024} KB miscellaneous ROM read back as a single ` +
+        `repeated byte (0x${misc[0].toString(16).padStart(2, "0").toUpperCase()}) — ` +
+        "that is a dead or misread data port, not plausible sample data; re-seat the cart and re-dump.",
     ];
   }
 }

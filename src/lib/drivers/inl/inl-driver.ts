@@ -122,6 +122,7 @@ export class INLDriver implements DeviceDriver {
     const mapperId = (config.params.mapper as number) ?? 0;
     const prgKB = ((config.params.prgSizeBytes as number) ?? 32768) / 1024;
     const chrKB = ((config.params.chrSizeBytes as number) ?? 8192) / 1024;
+    const miscKB = ((config.params.miscSizeBytes as number) ?? 0) / 1024;
 
     const mapper = getNesMapper(mapperId);
     if (!mapper) throw new Error(`Unsupported mapper: ${mapperId}`);
@@ -139,10 +140,11 @@ export class INLDriver implements DeviceDriver {
     // signal rides along so an abort interrupts per chunk, not per region.
     const bus = new InlNesBus(this.inlDevice, signal);
     const startTime = Date.now();
-    const totalBytes = (prgKB + chrKB) * 1024;
+    const totalBytes = (prgKB + chrKB + miscKB) * 1024;
 
     let prgData: Uint8Array;
     let chrData: Uint8Array = new Uint8Array(0);
+    let miscData: Uint8Array = new Uint8Array(0);
     try {
       // Dump PRG-ROM
       this.log(`Reading ${prgKB}KB PRG-ROM...`);
@@ -176,6 +178,30 @@ export class INLDriver implements DeviceDriver {
           });
         });
       }
+
+      // Dump the miscellaneous-ROM area (mapper 413's sample flash) —
+      // the NES 2.0 file section appended after CHR.
+      if (miscKB > 0) {
+        if (!mapper.dumpMiscRom) {
+          throw new Error(
+            `Mapper ${mapperId} (${mapper.name}) declares a miscellaneous ROM but supplies no dump path for it`,
+          );
+        }
+        this.log(`Reading ${miscKB}KB miscellaneous ROM...`);
+        signal?.throwIfAborted();
+
+        miscData = await mapper.dumpMiscRom(bus, miscKB, (bytesRead) => {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const totalRead = (prgKB + chrKB) * 1024 + bytesRead;
+          this.progress({
+            phase: "rom",
+            bytesRead: totalRead,
+            totalBytes,
+            fraction: totalRead / totalBytes,
+            speed: elapsed > 0 ? totalRead / elapsed : undefined,
+          });
+        });
+      }
     } finally {
       // Always reset the device, including when an abort or error unwinds the
       // dump. dumpRegion already resets the operation engine on its way out;
@@ -191,13 +217,17 @@ export class INLDriver implements DeviceDriver {
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     this.log(
-      `ROM read complete (${prgData.length + chrData.length} bytes in ${elapsed}s)`,
+      `ROM read complete (${prgData.length + chrData.length + miscData.length} bytes in ${elapsed}s)`,
     );
 
-    // Return PRG + CHR concatenated (system handler adds the iNES header)
-    const result = new Uint8Array(prgData.length + chrData.length);
+    // Return PRG + CHR + misc concatenated in NES 2.0 file order (the
+    // system handler adds the header).
+    const result = new Uint8Array(
+      prgData.length + chrData.length + miscData.length,
+    );
     result.set(prgData, 0);
     result.set(chrData, prgData.length);
+    result.set(miscData, prgData.length + chrData.length);
     return result;
   }
 

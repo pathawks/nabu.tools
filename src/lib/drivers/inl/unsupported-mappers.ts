@@ -66,6 +66,19 @@
  * was matched (see `inx007t.ts`). Given the formal mapper-268 classification
  * of this family on this device, pre-flight-rejecting 470 is the honest
  * default; an instrumented attempt could overturn it.
+ *
+ * ── Mapper 413 (BATMAP) ──
+ *
+ * A different reason from the boards above: the INL drives this mapper's
+ * registers fine and its PRG/CHR dump correctly. The block is the 8 MiB
+ * serial sample flash, which the CPLD clocks from M2 — reading it needs
+ * the firmware's NESCPU_SPI413 memtype to pace eight cart-ROM clock reads
+ * per byte (see InlNesBus.readSpiDataPort). That memtype is not in a
+ * released INL firmware yet, so the flash reads as solid 0xFF and the cart
+ * cannot be fully dumped. The read path is implemented and left dormant
+ * behind this entry — delete the 413 row below to re-enable it once the
+ * upstream firmware lands:
+ *   https://gitlab.com/InfiniteNesLives/INL-retro-progdump/-/merge_requests/45
  */
 
 /** INL-unsupported mapper id → reason shown in the driver's pre-flight error. */
@@ -80,5 +93,11 @@ export const UNSUPPORTED_MAPPERS = new Map<number, string>([
     "the board family refuses this device's synthesized writes (same CPLD " +
       "family as mapper 268, plus a recorded failure of this exact cart on " +
       "this device class)",
+  ],
+  [
+    413,
+    "its 8 MiB serial sample flash needs the NESCPU_SPI413 firmware memtype " +
+      "to pace the read, which is not in a released INL firmware yet (the " +
+      "flash reads as 0xFF until then)",
   ],
 ]);

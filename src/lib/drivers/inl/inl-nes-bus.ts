@@ -83,6 +83,37 @@ export class InlNesBus implements NesBus {
     });
   }
 
+  // Optional `NesBus.readCpuByte` capability: the one-byte escape hatch
+  // around dumpRegion's 1 KiB granularity, via the NES_CPU_RD dictionary
+  // opcode. Mapper 413 uses it for the SPI frame's arming read.
+  async readCpuByte(addr: number): Promise<number> {
+    return this.device.nes(NES.NES_CPU_RD, addr);
+  }
+
+  // Optional `NesBus.readSpiDataPort` capability for mapper 413: the
+  // firmware's NESCPU_SPI413 memtype paces each byte as eight cart-ROM
+  // read cycles (the CPLD's SPI clocks) plus one $C000 port read. The
+  // mapper opens the SPI frame before calling.
+  async readSpiDataPort(
+    length: number,
+    onProgress?: BusProgressCb,
+  ): Promise<Uint8Array> {
+    if (length === 0) return new Uint8Array(0);
+    if (length % 1024 !== 0) {
+      throw new Error(
+        `InlNesBus.readSpiDataPort requires multiple-of-1KB length; got ${length}`,
+      );
+    }
+    return dumpRegion(this.device, {
+      sizeKB: length / 1024,
+      memType: MEM.NESCPU_SPI413,
+      mapper: 0,
+      mapVar: MAPVAR.NOVAR,
+      onProgress,
+      signal: this.signal,
+    });
+  }
+
   async readPpu(
     addr: number,
     length: number,

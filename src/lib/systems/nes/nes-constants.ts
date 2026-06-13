@@ -32,6 +32,13 @@ export interface NESMapperDef {
    */
   chrRamKB?: number;
   /**
+   * NES 2.0 miscellaneous-ROM size in KiB — a fixed extra ROM section
+   * appended after CHR in the output file (header byte 14 counts it).
+   * Only boards that carry one declare it (mapper 413: 8 MiB of sample
+   * flash); it is never user-selectable.
+   */
+  miscRomKB?: number;
+  /**
    * Optional per-mapper warning, surfaced as a prominent amber alert in
    * the config UI when the mapper is selected. Must be DEVICE-AGNOSTIC —
    * a cart-handling caveat (e.g. Quattro's A/B switch) or an
@@ -212,6 +219,23 @@ export const NES_MAPPER_DB: NESMapperDef[] = [
     // No device-agnostic caveat: incompatibility is per-device
     // (capability.unsupportedMappers greys it out on the INL), and on a
     // device that can drive this board the dump path is hardware-validated.
+  },
+  {
+    id: 413,
+    name: "BATMAP",
+    // One board, one configuration: 256 KiB PRG + 256 KiB CHR + an
+    // 8 MiB sample flash dumped as the NES 2.0 miscellaneous-ROM area.
+    prgSizesKB: [256],
+    chrSizesKB: [256],
+    mirroring: "vertical",
+    commonlyHasBattery: false,
+    maxPrgRamKB: 0,
+    miscRomKB: 8192,
+    // Device-agnostic maturity caveat, same shape as mapper 470's.
+    warning:
+      "The dump recipe for this board is derived from emulator and FPGA " +
+      "sources and not yet hardware-validated — verify the result against " +
+      "a known-good reference. The 8 MB sample ROM makes this a long dump.",
   },
   {
     id: 470,

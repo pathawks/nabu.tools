@@ -18,7 +18,8 @@ describe("NES config sizing", () => {
       const actualBytes =
         16 +
         (cfg.params.prgSizeBytes as number) +
-        (cfg.params.chrSizeBytes as number);
+        (cfg.params.chrSizeBytes as number) +
+        ((cfg.params.miscSizeBytes as number) ?? 0);
       expect(handler.estimateDumpSize(values)).toBe(actualBytes);
     },
   );
@@ -89,5 +90,58 @@ describe("NES computed-header PRG-RAM declarations (buildOutputFile)", () => {
         (o) => !o.disabled,
       ),
     ).toBe(true);
+  });
+});
+
+describe("NES miscellaneous-ROM area (mapper 413)", () => {
+  const handler = new NESSystemHandler();
+
+  it("carries the fixed 8 MiB misc section through config, estimate, and header", () => {
+    const cfg = handler.buildReadConfig({ mapper: 413 });
+    expect(cfg.params.miscSizeBytes).toBe(8192 * 1024);
+    expect(cfg.params.mirroring).toBe("vertical");
+    expect(handler.estimateDumpSize({ mapper: 413 })).toBe(
+      16 + (256 + 256 + 8192) * 1024,
+    );
+    const out = handler.buildOutputFile(new Uint8Array(16), cfg);
+    expect(out.data[14]).toBe(1); // header byte 14: one misc ROM follows CHR
+    expect(out.meta?.["Misc ROM"]).toBe("8192 KB");
+  });
+
+  it("declares no misc ROM for ordinary mappers", () => {
+    const cfg = handler.buildReadConfig({ mapper: 4 });
+    expect(cfg.params.miscSizeBytes).toBe(0);
+    const out = handler.buildOutputFile(new Uint8Array(16), cfg);
+    expect(out.data[14]).toBe(0);
+    expect(out.meta?.["Misc ROM"]).toBeUndefined();
+  });
+});
+
+describe("NES misc-ROM dump analysis (analyzeDump)", () => {
+  const handler = new NESSystemHandler();
+  const cfg = handler.buildReadConfig({ mapper: 413 });
+  const contentBytes = (512 + 8192) * 1024; // PRG + CHR + misc, headerless
+
+  it("flags a miscellaneous ROM that read back as one uniform byte", () => {
+    const content = new Uint8Array(contentBytes); // misc = all 0x00
+    const notes = handler.analyzeDump(content, cfg);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/miscellaneous ROM/);
+    expect(notes[0]).toMatch(/0x00/);
+  });
+
+  it("stays quiet for non-uniform misc data", () => {
+    const content = new Uint8Array(contentBytes);
+    content[512 * 1024 + 12345] = 0xa7; // one byte of variation in misc
+    expect(handler.analyzeDump(content, cfg)).toHaveLength(0);
+  });
+
+  it("ignores mappers without a misc section", () => {
+    const mmc3Cfg = handler.buildReadConfig({ mapper: 4 });
+    const content = new Uint8Array(
+      (mmc3Cfg.params.prgSizeBytes as number) +
+        (mmc3Cfg.params.chrSizeBytes as number),
+    );
+    expect(handler.analyzeDump(content, mmc3Cfg)).toHaveLength(0);
   });
 });
